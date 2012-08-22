@@ -22,14 +22,35 @@ void addTime(struct timespec* time, long nanoseconds)
 
 void addTimeAndWait(struct timespec* time, long nanoseconds)
 {
-     addTime(time, nanoseconds);
+    // Since the operating system cannot get back to us quickly enough when we use something
+    // like clock_nanosleep and can in fact get to us up to 2.5 milliseconds late,
+    // We will instead try a spin-wait
     
+    // Trying a half os wait first...
+    /*addTime(time, nanoseconds / 4);
+    int errorValue = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, time, NULL);
+    if (errorValue)
+    {
+        fprintf(stderr, "GPIO UART warning: sleep failed or was interrupted: %s\n", strerror(errorValue));
+    }
+    
+    // Then using the spin-wait for precision
+    addTime(time, nanoseconds * 3 / 4);
+    
+    struct timespec actualTime;
+    do
+    {
+        clock_gettime(CLOCK_MONOTONIC, &actualTime);
+    } while (actualTime.tv_sec < time->tv_sec || (actualTime.tv_sec == time->tv_sec && actualTime.tv_nsec < time->tv_nsec));*/
+    
+    
+    addTime(time, nanoseconds);
     // We use an absolute sleep end-time to ensure error does not accumulate
     int errorValue = clock_nanosleep(CLOCK_MONOTONIC, TIMER_ABSTIME, time, NULL);
     if (errorValue)
     {
         fprintf(stderr, "GPIO UART warning: sleep failed or was interrupted: %s\n", strerror(errorValue));
-    }   
+    }
 }
 
 // Pushes value onto the receive buffer. If it is full, the oldest value is removed.
@@ -85,13 +106,13 @@ bool receiveGpioBit(const char* pin, struct timespec* lastBitTime, long nanoseco
         lastBitValue = bitValue;
         
         addTimeAndWait(lastBitTime, nanosecondsPerPart);
-        if (true)
+        /*if (true)
         {
             struct timespec actualTime;
             clock_gettime(CLOCK_MONOTONIC, &actualTime);
             long nanosecondsOff = (actualTime.tv_sec - lastBitTime->tv_sec) * 1000000000L + (actualTime.tv_nsec - lastBitTime->tv_nsec);
             printf("We are %ld nanoseconds off (our wait is %ld)\n", nanosecondsOff, nanosecondsPerPart);
-        }
+        }*/
         if (gpioRead(pin, &bitValue))
         {
             fprintf(stderr, "GPIO UART warning: individual rx pin read failed\n");
@@ -274,6 +295,13 @@ void* gpioUartReceiveMain(void* arg)
 void holdAndSetGpio(const char* pin, bool value, struct timespec* lastBitTime, long nanosecondsNeeded)
 {
     addTimeAndWait(lastBitTime, nanosecondsNeeded);
+    /*if (true)
+    {
+        struct timespec actualTime;
+        clock_gettime(CLOCK_MONOTONIC, &actualTime);
+        long nanosecondsOff = (actualTime.tv_sec - lastBitTime->tv_sec) * 1000000000L + (actualTime.tv_nsec - lastBitTime->tv_nsec);
+        printf("Setter is %ld nanoseconds off (%ld long pulse)\n", nanosecondsOff, nanosecondsNeeded);
+    }*/
     
     if (gpioWrite(pin, value))
     {

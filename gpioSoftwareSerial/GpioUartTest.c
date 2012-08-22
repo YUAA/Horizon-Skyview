@@ -21,6 +21,9 @@ int main(int argc, char* argv[])
         perror("Error getting terminal settings");
     }
     
+    // Save old temrinal settings
+    struct termios oldSettings = terminal_settings;
+    
     // disable canonical mode processing in the line discipline driver
     // So everything is read in instantly from stdin!
     terminal_settings.c_lflag &= ~ICANON;
@@ -37,7 +40,8 @@ int main(int argc, char* argv[])
     
     GpioUart uart;
     gpioUartStart(&uart, "1", "2", 100);
-    
+    uart.parityBit = true;
+    uart.secondStopBit = true;
     
     // We can only exit by Ctrl-C
     while (true)
@@ -49,6 +53,8 @@ int main(int argc, char* argv[])
             // End the program on escape=27
             if (terminalByte == 27)
             {
+                // Set terminal settings back
+                tcsetattr(0, TCSANOW, &oldSettings);
                 return 0;
             }
             gpioUartSendByte(&uart, terminalByte);

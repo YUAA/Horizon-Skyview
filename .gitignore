@@ -13,3 +13,6 @@
 
 # Temporary files
 *~
+
+# Weird other temporary thingies...
+.goutputstream*
