@@ -257,7 +257,7 @@ void* gpioUartReceiveMain(void* arg)
                 if (uart->parityBit)
                 {
                     int parityBitValue = 0;
-                    if (bitBuffer & (1 << (frameSize - 2 - uart->secondStopBit ? 1 : 0)))
+                    if (bitBuffer & (1 << (frameSize - 2 - (uart->secondStopBit ? 1 : 0))))
                     {
                         parityBitValue = 1;
                     }
@@ -276,6 +276,10 @@ void* gpioUartReceiveMain(void* arg)
                         // We have a byte!
                         pushReceivedByte(uart, bitBuffer >> 1);
                         bitBufferCount = 0;
+                    }
+                    else
+                    {
+                        //printf("Parity failed: %d\n", bitBuffer);
                     }
                 }
                 else
