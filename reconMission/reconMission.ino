@@ -1,5 +1,5 @@
-#include <Wire.h>
-#include <OneWire.h>
+#include <cellShield.h>
+#include <OnecellShield.h>
 #include <DallasTemperature.h>
 #include <Streaming.h>
 #include <string.h>
@@ -23,6 +23,8 @@ GpsData gpsData;
 //1-Wire on pin 10 for temperatures
 OneWire oneWire(10);
 DallasTemperature tempSensors(&oneWire);
+
+SoftwareSerial cellShield(11, 12);
 
 //Addresses of the 1-wire devices. These are unique. (and need to be set)
 DeviceAddress insideTempAdr = { 
@@ -62,7 +64,7 @@ void setup()
     Serial3.begin(115200);
 
     //The cell shield!
-    Wire.begin();
+    cellShield.begin();
 
     discoverOneWireDevices();
 
@@ -94,7 +96,7 @@ void discoverOneWireDevices(void) {
     byte addr[8];
 
     Serial.print("Looking for 1-Wire devices...\n\r");
-    while(oneWire.search(addr)) {
+    while(onecellShield.search(addr)) {
         Serial.print("\n\rFound \'1-Wire\' device with address:\n\r");
         for( i = 0; i < 8; i++) {
             Serial.print("0x");
@@ -112,7 +114,7 @@ void discoverOneWireDevices(void) {
         }
     }
     Serial.print("\n\r\n\rThat's it.\r\n");
-    oneWire.reset_search();
+    onecellShield.reset_search();
     return;
 }
 
@@ -194,17 +196,17 @@ void sendTag(const char* tag, const char* data)
         char hex1 = getHexOfNibble(checksum >> 4);
         char hex2 = getHexOfNibble(checksum);
 
-        Serial << tag << data << ':' << hex1 << hex2;
-        Serial1 << tag << data << ':' << hex1 << hex2;
-        Wire << tag << data << ':' << hex1 << hex2;
+        Serial << tag << '^' << data << ':' << hex1 << hex2;
+        Serial1 << tag << '^' << data << ':' << hex1 << hex2;
+        cellShield << tag << '^' << data << ':' << hex1 << hex2;
     }
 }
 
 bool isWireAvailable(int address)
 {
-    Wire.beginTransmission(address);
-    Wire.write((byte)0);
-    return Wire.endTransmission() != 2;
+    cellShield.beginTransmission(address);
+    cellShield.write((byte)0);
+    return cellShield.endTransmission() != 2;
 }
 
 void loop()
@@ -259,7 +261,7 @@ void loop()
     //We will request the max and then take however much we are given.
     //We will check for the data over the main data acquisition loop
     //with everything else, so that it can come in at any rate.
-    Wire.requestFrom(CELL_SHIELD_ADDRESS, 64);
+    cellShield.requestFrom(CELL_SHIELD_ADDRESS, 64);
 
     //Keep track of what new data we have gotten
     bool gottenGps = false;
@@ -270,10 +272,10 @@ void loop()
     {
         //Check for data from all sources...
         
-        int cellShieldBytes = Wire.available();
+        int cellShieldBytes = cellShield.available();
         for (int i = 0;i < cellShieldBytes; i++)
         {
-            int c = Wire.read();
+            int c = cellShield.read();
             if (c != -1)
             {
                 Serial.print((char)c);
