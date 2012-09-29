@@ -5,7 +5,7 @@
 #define AKP_PARSER_H
 
 #define MAX_DATA_SIZE 31
-#define INIT_MAGIC 0xafedbeef
+#define INIT_MAGIC ((unsigned long)0xafedbeef)
 
 //The struct that stores the state of the AKP parser and
 //the results (tag and data).
@@ -16,7 +16,7 @@ typedef struct
     char data[MAX_DATA_SIZE + 1];
     //State -- should not be modified outside of parseTag
     //We set hasInited to a special magic number to indicate when initalization has occurred
-    unsigned int hasInitedValue;
+    unsigned long hasInitedValue;
     int previousByte1;
     int previousByte2;
     int currentByte;
