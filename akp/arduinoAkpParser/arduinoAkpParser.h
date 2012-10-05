@@ -1,11 +1,12 @@
 #include "crc8.h"
 #include <stdbool.h>
+#include <stdint.h>
 
 #ifndef AKP_PARSER_H
 #define AKP_PARSER_H
 
 #define MAX_DATA_SIZE 31
-#define INIT_MAGIC ((unsigned long)0xafedbeef)
+#define INIT_MAGIC ((uint32_t)0xafedbeef)
 
 //The struct that stores the state of the AKP parser and
 //the results (tag and data).
@@ -16,7 +17,7 @@ typedef struct
     char data[MAX_DATA_SIZE + 1];
     //State -- should not be modified outside of parseTag
     //We set hasInited to a special magic number to indicate when initalization has occurred
-    unsigned long hasInitedValue;
+    uint32_t hasInitedValue;
     int previousByte1;
     int previousByte2;
     int currentByte;

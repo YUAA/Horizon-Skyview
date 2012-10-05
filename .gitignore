@@ -2,6 +2,7 @@
 *.slo
 *.lo
 *.o
+*.ko
 
 # Compiled Dynamic libraries
 *.so
@@ -12,7 +13,22 @@
 *.a
 
 # Temporary files
+*.mod.c
+*.cmd
 *~
+
+# some executables
+arduinoParseTest
+gpioUartTest
+tester
+
 
 # Weird other temporary thingies...
 .goutputstream*
+modules.order
+Module.symvers
+
+
+# weird other weird things
+.kdev_include_paths
+.tmp_versions

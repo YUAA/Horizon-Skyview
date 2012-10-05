@@ -39,9 +39,7 @@ int main(int argc, char* argv[])
     }
     
     GpioUart uart;
-    gpioUartStart(&uart, "1", "2", 400);
-    uart.parityBit = true;
-    uart.secondStopBit = true;
+    gpioUartStart(&uart, "1", "2", 60);
     
     // We can only exit by Ctrl-C
     while (true)

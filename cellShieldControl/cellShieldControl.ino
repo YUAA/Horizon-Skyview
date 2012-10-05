@@ -9,11 +9,13 @@
 #include <stdio.h>
 #include <ctype.h>
 
+// All of these strings must be lower-case as a case-insensitive comparison
+// will be done after the input is made lower case
 // Text message signal to KILL
 #define KILL_TEXT "kill"
 // Text message signal to relay all information to subscribed numbers
 #define GET_INFO_TEXT "info"
-// Text message to 
+// Text message to subscribe a phone number to receive periodic texts
 #define SUBSCRIBE_TEXT "subscribe"
 
 // Buffer size for reading lines in from the cell shield
@@ -353,6 +355,14 @@ int handleCellShieldCommand(const char* command) {
         // We want to read in another line (command)
         // This line is the contents of the text message itself
         command = cellShieldReadInputLine();
+        
+        // Make the command all lower case for case-insensitive comparisons to occur
+        // (our defined TEXTs are all lower case)
+        char* commandCharOn = command;
+        while (*commandCharOn)
+        {
+            *commandCharOn = tolower((unsigned char) *commandCharOn);
+        }
         
         if (strstr(command, KILL_TEXT))
         {

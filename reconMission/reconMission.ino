@@ -1,9 +1,10 @@
-#include <cellShield.h>
-#include <OnecellShield.h>
+#include <Serial.h>
+#include <OneWire.h>
 #include <DallasTemperature.h>
 #include <Streaming.h>
 #include <string.h>
 #include <stdlib.h>
+#include <SoftwareSerial.h>
 
 #include "fmtDouble.h"
 #include "tagparser.h"
@@ -14,6 +15,14 @@
 #define CELL_SHIELD_ADDRESS 4
 #define CELL_MAX_TAGS 6
 
+#define CELL_SHIELD cellShield
+#define CONSOLE Serial
+#define TRANSCEIVER Serial1
+#define GPS Serial2
+#define IMU Serial3
+
+SoftwareSerial cellShield(11, 12);
+
 //Parser data
 TagParseData transceiverData;
 TagParseData cellShieldData;
@@ -23,8 +32,6 @@ GpsData gpsData;
 //1-Wire on pin 10 for temperatures
 OneWire oneWire(10);
 DallasTemperature tempSensors(&oneWire);
-
-SoftwareSerial cellShield(11, 12);
 
 //Addresses of the 1-wire devices. These are unique. (and need to be set)
 DeviceAddress insideTempAdr = { 
@@ -52,19 +59,36 @@ int cellStoredTagOn = 0;
 //Keep track of time, second by second
 unsigned long secondStartTime;
 
+// What to current echo/output to the console - with flags!
+// 1 = CONSOLE
+// 2 = TRANSCEIVER
+// 4 = GPS
+// 8 = IMU
+// 16 = CELL_SHIELD
+// Default to everything!
+// The characters that manipulate this from the console are
+// ) to turn everything off
+// ! for console
+// @ for transceiver
+// # for gps
+// $ for imu
+// % for cell shield
+// These correspond to the characters that are Shift+(0-5)
+int debugEchoMode = 32 - 1;
+
 void setup()
 {
     //The debugging monitor
-    Serial.begin(9600);
+    CONSOLE.begin(9600);
     //Transceiver!
-    Serial1.begin(9600);
+    TRANSCEIVER.begin(9600);
     //GPS!
-    Serial2.begin(4800);
+    GPS.begin(4800);
     //IMU! -- we need to make sure it only gives out reading 1 per second!
-    Serial3.begin(115200);
+    IMU.begin(115200);
 
     //The cell shield!
-    cellShield.begin();
+    CELL_SHIELD.begin(9600);
 
     discoverOneWireDevices();
 
@@ -95,26 +119,26 @@ void discoverOneWireDevices(void) {
     byte data[12];
     byte addr[8];
 
-    Serial.print("Looking for 1-Wire devices...\n\r");
-    while(onecellShield.search(addr)) {
-        Serial.print("\n\rFound \'1-Wire\' device with address:\n\r");
+    CONSOLE.print("Looking for 1-Wire devices...\n\r");
+    while(oneWire.search(addr)) {
+        CONSOLE.print("\n\rFound \'1-Wire\' device with address:\n\r");
         for( i = 0; i < 8; i++) {
-            Serial.print("0x");
+            CONSOLE.print("0x");
             if (addr[i] < 16) {
-                Serial.print('0');
+                CONSOLE.print('0');
             }
-            Serial.print(addr[i], HEX);
+            CONSOLE.print(addr[i], HEX);
             if (i < 7) {
-                Serial.print(", ");
+                CONSOLE.print(", ");
             }
         }
         if ( OneWire::crc8( addr, 7) != addr[7]) {
-            Serial.print("CRC is not valid!\n");
+            CONSOLE.print("CRC is not valid!\n");
             return;
         }
     }
-    Serial.print("\n\r\n\rThat's it.\r\n");
-    onecellShield.reset_search();
+    CONSOLE.print("\n\r\n\rThat's it.\r\n");
+    oneWire.reset_search();
     return;
 }
 
@@ -196,17 +220,10 @@ void sendTag(const char* tag, const char* data)
         char hex1 = getHexOfNibble(checksum >> 4);
         char hex2 = getHexOfNibble(checksum);
 
-        Serial << tag << '^' << data << ':' << hex1 << hex2;
-        Serial1 << tag << '^' << data << ':' << hex1 << hex2;
+        CONSOLE << tag << '^' << data << ':' << hex1 << hex2;
+        TRANSCEIVER << tag << '^' << data << ':' << hex1 << hex2;
         cellShield << tag << '^' << data << ':' << hex1 << hex2;
     }
-}
-
-bool isWireAvailable(int address)
-{
-    cellShield.beginTransmission(address);
-    cellShield.write((byte)0);
-    return cellShield.endTransmission() != 2;
 }
 
 void loop()
@@ -257,12 +274,6 @@ void loop()
     //Request the temp sensors to begin another conversion
     tempSensors.requestTemperatures();
 
-    //Get data from cell shield:
-    //We will request the max and then take however much we are given.
-    //We will check for the data over the main data acquisition loop
-    //with everything else, so that it can come in at any rate.
-    cellShield.requestFrom(CELL_SHIELD_ADDRESS, 64);
-
     //Keep track of what new data we have gotten
     bool gottenGps = false;
     bool gottenImu = false;
@@ -271,28 +282,74 @@ void loop()
     while (secondStartTime + 1000 > millis())
     {
         //Check for data from all sources...
-        
-        int cellShieldBytes = cellShield.available();
-        for (int i = 0;i < cellShieldBytes; i++)
+        int debuggingBytes = CONSOLE.available();
+        static TagParseData debuggingData;
+        for (int i = 0;i < debuggingBytes; i++)
         {
-            int c = cellShield.read();
+            int c = CONSOLE.read();
             if (c != -1)
             {
-                Serial.print((char)c);
+                // See the commendts of debugEchoMode for details...
+                switch (c)
+                {
+                    case ')':
+                        debugEchoMode = 0;
+                        break;
+                    case '!':
+                        debugEchoMode ^= 1;
+                        break;
+                    case '@':
+                        debugEchoMode ^= 2;
+                        break;
+                    case '#':
+                        debugEchoMode ^= 4;
+                        break;
+                    case '$':
+                        debugEchoMode ^= 8;
+                        break;
+                    case '%':
+                        debugEchoMode ^= 16;
+                        break;
+                }
+                if (debugEchoMode & 1)
+                {
+                    CONSOLE.print((char)c);
+                }
+                if (parseTag(c, &debuggingData))
+                {
+                    baseHandleTag(debuggingData.tag, debuggingData.data);
+                }
+            }
+        }
+        
+        int cellShieldBytes = CELL_SHIELD.available();
+        for (int i = 0;i < cellShieldBytes; i++)
+        {
+            int c = CELL_SHIELD.read();
+            if (c != -1)
+            {
+                if (debugEchoMode & 16)
+                {
+                    CONSOLE.print((char)c);
+                }
                 if (parseTag(c, &cellShieldData))
                 {
+                    //CONSOLE << "Got tag from cell shield: " << cellShieldData.tag << " with data: " << cellShieldData.data << '\n';
                     cellShieldHandleTag(cellShieldData.tag, cellShieldData.data);
                 }
             }
         }
         
-        int transceiverBytes = Serial1.available();
+        int transceiverBytes = TRANSCEIVER.available();
         for (int i = 0;i < transceiverBytes; i++)
         {
-            int c = Serial1.read();
+            int c = TRANSCEIVER.read();
             if (c != -1)
             {
-                Serial.print((char)c);
+                if (debugEchoMode & 2)
+                {
+                    CONSOLE.print((char)c);
+                }
                 if (parseTag(c, &transceiverData))
                 {
                     baseHandleTag(transceiverData.tag, transceiverData.data);
@@ -300,13 +357,16 @@ void loop()
             }
         }
 
-        int gpsBytes = Serial2.available();
+        int gpsBytes = GPS.available();
         for (int i = 0;i < gpsBytes; i++)
         {
-            int c = Serial2.read();
+            int c = GPS.read();
             if (c != -1)
             {
-                Serial.print((char)c);
+                if (debugEchoMode & 4)
+                {
+                    CONSOLE.print((char)c);
+                }
                 if (parseGps(c, &gpsData))
                 {
                     gottenGps = true;
@@ -314,13 +374,16 @@ void loop()
             }
         }
 
-        int imuBytes = Serial3.available();
+        int imuBytes = IMU.available();
         for (int i = 0;i < imuBytes; i++)
         {
-            int c = Serial3.read();
+            int c = IMU.read();
             if (c != -1)
             {
-                Serial.print((char)c);
+                if (debugEchoMode & 8)
+                {
+                    CONSOLE.print((char)c);
+                }
                 if (parseImu(c, &imuData))
                 {
                     gottenImu = true;
@@ -408,8 +471,7 @@ void loop()
     sendTag("LV", hasKickedBucket ? "0" : "1");
 
     //Request GPS velocity data
-    Serial2.print(GPS_VELOCITY_REQUEST);
+    GPS.print(GPS_VELOCITY_REQUEST);
 
-    Serial.println();
+    CONSOLE.println();
 }
-
