@@ -7,7 +7,9 @@
 #include <SoftwareSerial.h>
 
 #include "fmtDouble.h"
-#include "tagparser.h"
+#include "arduinoAkpParser.h"
+#include "transceiverPacketParse.h"
+
 #include "gpsimu.h"
 
 #define STAY_ALIVE_PIN 2
@@ -21,16 +23,16 @@
 #define GPS Serial2
 #define IMU Serial3
 
-SoftwareSerial cellShield(11, 12);
+SoftwareSerial cellShield(6, 7);
 
 //Parser data
-TagParseData transceiverData;
+TransceiverPacketParseData transceiverPacketData;
 TagParseData cellShieldData;
 ImuData imuData;
 GpsData gpsData;
 
-//1-Wire on pin 10 for temperatures
-OneWire oneWire(10);
+//1-Wire on pin 5 for temperatures
+OneWire oneWire(5);
 DallasTemperature tempSensors(&oneWire);
 
 //Addresses of the 1-wire devices. These are unique. (and need to be set)
@@ -65,6 +67,7 @@ unsigned long secondStartTime;
 // 4 = GPS
 // 8 = IMU
 // 16 = CELL_SHIELD
+// 32 = tag data
 // Default to everything!
 // The characters that manipulate this from the console are
 // ) to turn everything off
@@ -73,8 +76,9 @@ unsigned long secondStartTime;
 // # for gps
 // $ for imu
 // % for cell shield
+// ^ for tag data
 // These correspond to the characters that are Shift+(0-5)
-int debugEchoMode = 32 - 1;
+int debugEchoMode = 64 - 1;
 
 void setup()
 {
@@ -164,6 +168,21 @@ void baseHandleTag(const char* tag, const char* data)
     }
 }
 
+// Only does it if there is space...
+void forwardTag(const char* tag, const char* data)
+{
+    //Set to be forwarded if there is space
+    if (cellStoredTagOn < CELL_MAX_TAGS)
+    {
+        strncpy(cellStoredTags[cellStoredTagOn++], tag, sizeof(*cellStoredTags));
+        strncpy(cellStoredData[cellStoredTagOn], data, sizeof(*cellStoredData));
+    }
+    else
+    {
+        CONSOLE << "Could not forward tag: " << tag << " with data: " << data << " due to lack of space.\n";
+    }
+}
+
 //Handles tags from cell shield
 void cellShieldHandleTag(const char* tag, const char* data)
 {
@@ -181,12 +200,7 @@ void cellShieldHandleTag(const char* tag, const char* data)
     else if (strcmp(tag, "KL") != 0 &&
         strcmp(tag, "ST") != 0)
     {
-        //Set to be forwarded if there is space
-        if (cellStoredTagOn < CELL_MAX_TAGS)
-        {
-            strncpy(cellStoredTags[cellStoredTagOn++], tag, sizeof(*cellStoredTags));
-            strncpy(cellStoredData[cellStoredTagOn], data, sizeof(*cellStoredData));
-        }
+        forwardTag(tag, data);
     }
     else
     {
@@ -208,6 +222,48 @@ char getHexOfNibble(char c)
     }
 }
 
+void sendTransceiverPacketTag(const char* tag, const char* data)
+{
+    // Packet start delimeter
+    TRANSCEIVER.write(0x7e);
+    
+    // Packet length is 5 bytes frame structure overhead + tag bytes + data bytes
+    // We remove the excess because we are sending tags in individual own packets
+    int packetLength = 5 + 2 + strlen(data);
+    
+    int packetLengthMsb = ((packetLength >> 8) & 0xff);
+    int packetLengthLsb = packetLength & 0xff;
+    TRANSCEIVER.write(packetLengthMsb);
+    TRANSCEIVER.write(packetLengthLsb);
+    
+    // Send request
+    TRANSCEIVER.write((uint8_t)0x01);
+    // We want no response verification frames
+    TRANSCEIVER.write((uint8_t)0x00);
+    // Broadcast the packet with 0xffff
+    TRANSCEIVER.write((uint8_t)0xff);
+    TRANSCEIVER.write((uint8_t)0xff);
+    // Again, disable acknowledgement
+    TRANSCEIVER.write((uint8_t)0x00);
+    
+    // Now for the data!
+    TRANSCEIVER << tag << data;
+    
+    // And now the checksum!
+    // Add all non-delimeter, non-length bytes and subtract 8-bits from 0xff
+    unsigned long totalSum = 1 + 0xff + 0xff + tag[0] + tag[1];
+    const char* dataCharOn = data;
+    while (*data)
+    {
+        totalSum += *data;
+        data++;
+    }
+    
+    int checksum = 0xff - (totalSum & 0xff);
+    
+    TRANSCEIVER.write(checksum);
+}
+
 //Sends tag with data to both the transceiver and cell shield arduino
 //Avoids sending tags with NULL or empty data (for convenience)
 void sendTag(const char* tag, const char* data)
@@ -220,9 +276,14 @@ void sendTag(const char* tag, const char* data)
         char hex1 = getHexOfNibble(checksum >> 4);
         char hex2 = getHexOfNibble(checksum);
 
-        CONSOLE << tag << '^' << data << ':' << hex1 << hex2;
-        TRANSCEIVER << tag << '^' << data << ':' << hex1 << hex2;
+        if (debugEchoMode & 32)
+        {
+            CONSOLE << tag << '^' << data << ':' << hex1 << hex2;
+        }
+        //TRANSCEIVER << tag << '^' << data << ':' << hex1 << hex2;
         cellShield << tag << '^' << data << ':' << hex1 << hex2;
+        
+        sendTransceiverPacketTag(tag, data);
     }
 }
 
@@ -310,6 +371,9 @@ void loop()
                     case '%':
                         debugEchoMode ^= 16;
                         break;
+                    case '^':
+                        debugEchoMode ^= 32;
+                        break;
                 }
                 if (debugEchoMode & 1)
                 {
@@ -350,9 +414,22 @@ void loop()
                 {
                     CONSOLE.print((char)c);
                 }
-                if (parseTag(c, &transceiverData))
+                
+                if (parseTransceiverByte(c, &transceiverPacketData))
                 {
-                    baseHandleTag(transceiverData.tag, transceiverData.data);
+                    // Forward a signal strength tag!
+                    // We have to make it a string... darrr!
+                    // A single byte number can be at most three decimal digits.
+                    char signalNumber[4];
+                    signalNumber[0] = (transceiverPacketData.signalStrength / 100) + '0';
+                    signalNumber[1] = (transceiverPacketData.signalStrength / 10) % 10 + '0';
+                    signalNumber[2] = transceiverPacketData.signalStrength % 10 + '0';
+                    signalNumber[3] = '\0';
+                    
+                    forwardTag("BS", signalNumber);
+                    
+                    // Handle the tag we just marvelously got!
+                    baseHandleTag(transceiverPacketData.tag, transceiverPacketData.data);
                 }
             }
         }
@@ -473,5 +550,9 @@ void loop()
     //Request GPS velocity data
     GPS.print(GPS_VELOCITY_REQUEST);
 
-    CONSOLE.println();
+    // Meant for deliminating lines of tags...
+    if (debugEchoMode & 32)
+    {
+        CONSOLE.println();
+    }
 }

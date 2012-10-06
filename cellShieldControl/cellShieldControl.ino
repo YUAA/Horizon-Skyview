@@ -28,11 +28,18 @@
 // Interval for sending tag information to arduino
 #define ARDUINO_SEND_INTERVAL (10 * 1000)
 
+// Time interval for the cell shield timing out.
+// If we do not receive any input from the cell shield (line ending in \r)
+// then we go through the init sequence again. This will likely time out
+// some when everything is going just peachy, but it should not cause any
+// trouble either to go through the sequence extra when nothing is happening anyway.
+#define CELL_SHIELD_INPUT_TIMEOUT (5UL * 60 * 1000)
+
 #define MAX_SUBSCRIBERS 6
 
-#define BIG_ARDUINO Serial
-#define CELL_SHIELD cellShield
-SoftwareSerial cellShield(7, 8);
+#define BIG_ARDUINO softSerial
+#define CELL_SHIELD Serial
+SoftwareSerial softSerial(7, 8);
 
 // 12033470933 is the YUAA twilio
 char subscribedPhoneNumbers[MAX_SUBSCRIBERS][12] = {"14018649488"};//, "12033470933"};
@@ -56,9 +63,14 @@ char cidBuffer[5];
 char latitudeBuffer[16];
 // Latitude routed from the GPS for text message relay
 char longitudeBuffer[16];
+// Death-time from the main controller for text message relay
+char deathTimeBuffer[16];
 
 unsigned long millisAtLastMessageRelay;
 unsigned long millisAtLastArduinoSend;
+
+// Last time a line was received from the cell shield
+unsigned long lastCellShieldLineTime;
 
 // Whether we have received a LV tag of 0 from the main controller (for lack of liveliness)
 bool hasBalloonBeenKilled = false;
@@ -102,13 +114,19 @@ void sendTagArduino(const char* tag, const char* data)
 
 void sendInfoTagsToCellShield()
 {
-    sendTagCellShield("MC", mccBuffer);
+    /*sendTagCellShield("MC", mccBuffer);
     sendTagCellShield("MN", mncBuffer);
     sendTagCellShield("LC", lacBuffer);
     sendTagCellShield("CD", cidBuffer);
     sendTagCellShield("LA", latitudeBuffer);
     sendTagCellShield("LO", longitudeBuffer);
-    sendTagCellShield("LV", hasBalloonBeenKilled ? "0" : "1");
+    sendTagCellShield("DT", deathTimeBuffer);
+    sendTagCellShield("LV", hasBalloonBeenKilled ? "0" : "1");*/
+    CELL_SHIELD << "Lat: " << latitudeBuffer << '\n';
+    CELL_SHIELD << "Long: " << longitudeBuffer << '\n';
+    CELL_SHIELD << (hasBalloonBeenKilled ? "DEAD!" : "ALIVE!") << '\n';
+    CELL_SHIELD << "T- " << deathTimeBuffer << ' seconds.\n';
+    CELL_SHIELD << "MC: " << mccBuffer << "MN: " << mncBuffer << "LC: " << lacBuffer << "CD: " << cidBuffer << '\n';
 }
 
 void sendInfoTagsToArduino()
@@ -119,6 +137,7 @@ void sendInfoTagsToArduino()
     sendTagArduino("CD", cidBuffer);
     sendTagArduino("LA", latitudeBuffer);
     sendTagArduino("LO", longitudeBuffer);
+    sendTagArduino("DT", deathTimeBuffer);
     sendTagArduino("LV", hasBalloonBeenKilled ? "0" : "1");
     
     // For nice observation
@@ -148,6 +167,10 @@ char* checkForCellShieldInputLineAddChar(char c)
             // Commands are delimited by a carriage return, so we are done.
             commandBuffer[bufferIndex] = '\0';
             bufferIndex = 0;
+            
+            // Remember the timing of this!!!
+            lastCellShieldLineTime = millis();
+            
             return commandBuffer;
         default:
             // A normal character: we add it to the current command if we haven't run out of space
@@ -354,31 +377,32 @@ int handleCellShieldCommand(const char* command) {
         
         // We want to read in another line (command)
         // This line is the contents of the text message itself
-        command = cellShieldReadInputLine();
+        char* message = cellShieldReadInputLine();
         
         // Make the command all lower case for case-insensitive comparisons to occur
         // (our defined TEXTs are all lower case)
-        char* commandCharOn = command;
-        while (*commandCharOn)
+        char* messageCharOn = message;
+        while (*messageCharOn)
         {
-            *commandCharOn = tolower((unsigned char) *commandCharOn);
+            *messageCharOn = tolower((unsigned char) *messageCharOn);
+            messageCharOn++;
         }
         
-        if (strstr(command, KILL_TEXT))
+        if (strstr(message, KILL_TEXT))
         {
             // Send the kill tag to the arduino
             sendTagArduino("KL", "");
             // We will inform people about the killing once it is successful!
             // In the mean time, we do want to enter alert mode!
             inAlertMode = true;
-            BIG_ARDUINO << "Entering alert mode\n";
+            BIG_ARDUINO << "Alert mode\n";
         }
-        if (strstr(command, GET_INFO_TEXT))
+        if (strstr(message, GET_INFO_TEXT))
         {
             BIG_ARDUINO << "Sending info to " << incomingPhoneNumber << '\n';
             if (sendTextMessage(incomingPhoneNumber)) return -1;
         }
-        if (strstr(command, SUBSCRIBE_TEXT))
+        if (strstr(message, SUBSCRIBE_TEXT))
         {
             BIG_ARDUINO << "Subscribing to texts: " << incomingPhoneNumber << '\n';
             addSubscriber(incomingPhoneNumber);
@@ -435,17 +459,17 @@ int sendToCellShieldAndConfirm(const char* command)
                 }
             }
         }
-        BIG_ARDUINO << "Cell shield response timed out. Resending command.\n";
+        BIG_ARDUINO << "Cell shield timed out. Resending.\n";
     }
 }
 
 int requestAndStoreMccAndMnc() {
     while (1)
     {
-        unsigned long startTime = millis();
-        
         if (sendToCellShieldAndConfirm("AT+COPS=0")) return -1;
         CELL_SHIELD.println("AT+COPS?");
+        
+        unsigned long startTime = millis();
         
         while (startTime + 1000 > millis())
         {
@@ -563,12 +587,12 @@ int setupSim()
     if (requestAndStoreMccAndMnc()) return -1;
     
     // Settings for receiving text messages
-    BIG_ARDUINO.println("Setting text message settings");
+    BIG_ARDUINO.println("Setting txt settings");
     if (sendToCellShieldAndConfirm("AT+CNMI=3,3,0,0")) return -1;
     BIG_ARDUINO.println("Done");
     
     // Request a report with the LAC and CID
-    BIG_ARDUINO.println("Requesting periodic CREGs");
+    BIG_ARDUINO.println("Requesting CREGs");
     if (sendToCellShieldAndConfirm("AT+CREG=2")) return -1;
     BIG_ARDUINO.println("Done");
     
@@ -579,7 +603,7 @@ void setup() {
     BIG_ARDUINO.begin(9600);
     CELL_SHIELD.begin(9600);
     
-    BIG_ARDUINO.println("Starting init sequence");
+    BIG_ARDUINO.println("Starting init");
     
     millisAtLastMessageRelay = millis();
     millisAtLastArduinoSend = millis();
@@ -603,7 +627,7 @@ void checkForControllerInput()
         BIG_ARDUINO.write((char)c);
         if (parseTag(c, &tpData))
         {
-            BIG_ARDUINO << "Got tag: " << tpData.tag << " with data: " << tpData.data << '\n';
+            BIG_ARDUINO << "Got: " << tpData.tag << " with: " << tpData.data << '\n';
             if (strcmp(tpData.tag, "LV") == 0)
             {
                 // We only care for the first byte on the liveliness tag, and we only care whether it is not 0
@@ -612,7 +636,7 @@ void checkForControllerInput()
                 if (hasBalloonBeenKilled)
                 {
                     inAlertMode = true;
-                    BIG_ARDUINO << "Entering alert mode\n";
+                    BIG_ARDUINO << "Alert mode\n";
                 }
             }
             else if (strcmp(tpData.tag, "LA") == 0)
@@ -625,12 +649,24 @@ void checkForControllerInput()
                 strncpy(longitudeBuffer, tpData.data, 15);
                 longitudeBuffer[15] = '\0';
             }
+            else if (strcmp(tpData.tag, "DT") == 0)
+            {
+                strncpy(deathTimeBuffer, tpData.data, 15);
+                deathTimeBuffer[15] = '\0';
+            }
         }
     }
 }
 
 void loop()
 {
+    
+    if (millis() - lastCellShieldLineTime >= CELL_SHIELD_INPUT_TIMEOUT)
+    {
+        // Do setup again!
+        while (setupSim());
+    }
+    
     char* inputLine = checkForCellShieldInputLine();
     if (inputLine)
     {
