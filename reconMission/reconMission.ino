@@ -17,13 +17,13 @@
 #define CELL_SHIELD_ADDRESS 4
 #define CELL_MAX_TAGS 6
 
-#define CELL_SHIELD cellShield
 #define CONSOLE Serial
 #define TRANSCEIVER Serial1
 #define GPS Serial2
-#define IMU Serial3
+#define CELL_SHIELD Serial3
+#define IMU softSerial
 
-SoftwareSerial cellShield(6, 7);
+SoftwareSerial softSerial(12, 13);
 
 //Parser data
 TransceiverPacketParseData transceiverPacketData;
@@ -46,7 +46,10 @@ char lastLatitude[10];
 char lastLongitude[10];
 char lastAltitude[10];
 char lastCellMmc[10];
+char lastCellMnc[10];
+char lastCellLac[10];
 char lastCellCid[10];
+char lastSatelliteCount[10];
 
 //Killswitch timeout, initialized to 10 minutes at startup
 long secondsToTimeout = 600;
@@ -92,7 +95,7 @@ void setup()
     IMU.begin(115200);
 
     //The cell shield!
-    CELL_SHIELD.begin(9600);
+    CELL_SHIELD.begin(28800);
 
     discoverOneWireDevices();
 
@@ -174,8 +177,9 @@ void forwardTag(const char* tag, const char* data)
     //Set to be forwarded if there is space
     if (cellStoredTagOn < CELL_MAX_TAGS)
     {
-        strncpy(cellStoredTags[cellStoredTagOn++], tag, sizeof(*cellStoredTags));
+        strncpy(cellStoredTags[cellStoredTagOn], tag, sizeof(*cellStoredTags));
         strncpy(cellStoredData[cellStoredTagOn], data, sizeof(*cellStoredData));
+        cellStoredTagOn++;
     }
     else
     {
@@ -190,11 +194,23 @@ void cellShieldHandleTag(const char* tag, const char* data)
     //Keep special track of these two...
     if (strcmp(tag, "MC") == 0)
     {
-        strncpy(lastCellMmc, data, sizeof(lastCellMmc));
+        strncpy(lastCellMmc, data, sizeof(lastCellMmc - 1));
+        lastCellMmc[sizeof(lastCellMmc - 1)] = '\0';
+    }
+    else if (strcmp(tag, "MN") == 0)
+    {
+        strncpy(lastCellMnc, data, sizeof(lastCellMnc - 1));
+        lastCellMnc[sizeof(lastCellMnc - 1)] = '\0';
+    }
+    else if (strcmp(tag, "LC") == 0)
+    {
+        strncpy(lastCellLac, data, sizeof(lastCellLac - 1));
+        lastCellLac[sizeof(lastCellLac - 1)] = '\0';
     }
     else if (strcmp(tag, "CD") == 0)
     {
-        strncpy(lastCellCid, data, sizeof(lastCellCid));
+        strncpy(lastCellCid, data, sizeof(lastCellCid - 1));
+        lastCellCid[sizeof(lastCellCid - 1)] = '\0';
     }
     //Forward everything else...
     else if (strcmp(tag, "KL") != 0 &&
@@ -264,9 +280,9 @@ void sendTransceiverPacketTag(const char* tag, const char* data)
     TRANSCEIVER.write(checksum);
 }
 
-//Sends tag with data to both the transceiver and cell shield arduino
+//Sends tag with data to the transceiver and possible console for debugging
 //Avoids sending tags with NULL or empty data (for convenience)
-void sendTag(const char* tag, const char* data)
+void mainSendTag(const char* tag, const char* data)
 {
     if (data && *data)
     {
@@ -281,9 +297,59 @@ void sendTag(const char* tag, const char* data)
             CONSOLE << tag << '^' << data << ':' << hex1 << hex2;
         }
         //TRANSCEIVER << tag << '^' << data << ':' << hex1 << hex2;
-        cellShield << tag << '^' << data << ':' << hex1 << hex2;
+        //cellShield << tag << '^' << data << ':' << hex1 << hex2;
         
         sendTransceiverPacketTag(tag, data);
+    }
+}
+
+// Sends the tag to the cell shield arduino.
+// Doesn't send for null or empty data for convenience.
+void cellShieldSendTag(const char* tag, const char* data)
+{
+    if (data && *data)
+    {
+        unsigned char checksum = crc8(tag, 0);
+        checksum = crc8(data, checksum);
+        //Get hex of checksum
+        char hex1 = getHexOfNibble(checksum >> 4);
+        char hex2 = getHexOfNibble(checksum);
+
+        CELL_SHIELD << tag << '^' << data << ':' << hex1 << hex2;
+        
+        // The arduino cell shield also needs some delays as help
+        delay(50);
+    }
+}
+
+// Sends several tags to the arduino cell shield each time this is called
+// This is because of issues with serial buffer overflow/timing problems
+void cellShieldSendInformation()
+{
+    static int sendStateOn = 0;
+    switch (sendStateOn)
+    {
+        case 0:
+            cellShieldSendTag("LA", lastLatitude);
+            cellShieldSendTag("LO", lastLongitude);
+            sendStateOn = 1;
+            break;
+        case 1:
+            cellShieldSendTag("GS", lastSatelliteCount);
+            sendStateOn = 2;
+            break;
+        case 2:
+            char lifeLeft[10];
+            fmtUnsigned(secondsToTimeout, lifeLeft, 10);
+            
+            cellShieldSendTag("DT", lifeLeft);
+            cellShieldSendTag("LV", hasKickedBucket ? "0" : "1");
+            sendStateOn = 0;
+            break;
+        default:
+            // Impossible, but good form anyway
+            sendStateOn = 0;
+            break;
     }
 }
 
@@ -496,56 +562,67 @@ void loop()
     //Send out data -- ALL the data!
     if (gottenInsideTemp)
     {
-        sendTag("TI", insideTemperature);
+        mainSendTag("TI", insideTemperature);
     }
     if (gottenOutsideTemp)
     {
-        sendTag("TO", outsideTemperature);
+        mainSendTag("TO", outsideTemperature);
     }
     if (gottenGps)
     {
-        sendTag("TM", gpsData.utc);
-        sendTag("HD", gpsData.hdop);
-        sendTag("GS", gpsData.satellites);
-        sendTag("LO", gpsData.longitude);
-        sendTag("LA", gpsData.latitude);
-        sendTag("AL", gpsData.altitude);
-        sendTag("EV", gpsData.eastVelocity);
-        sendTag("NV", gpsData.northVelocity);
-        sendTag("UV", gpsData.upVelocity);
+        mainSendTag("TM", gpsData.utc);
+        mainSendTag("HD", gpsData.hdop);
+        mainSendTag("GS", gpsData.satellites);
+        mainSendTag("LO", gpsData.longitude);
+        mainSendTag("LA", gpsData.latitude);
+        mainSendTag("AL", gpsData.altitude);
+        mainSendTag("EV", gpsData.eastVelocity);
+        mainSendTag("NV", gpsData.northVelocity);
+        mainSendTag("UV", gpsData.upVelocity);
+        
+        strncpy(lastLongitude, gpsData.longitude, sizeof(lastLongitude) - 1);
+        lastLongitude[sizeof(lastLongitude) - 1] = '\0';
+        
+        strncpy(lastLatitude, gpsData.latitude, sizeof(lastLatitude) - 1);
+        lastLatitude[sizeof(lastLatitude) - 1] = '\0';
+        
+        strncpy(lastSatelliteCount, gpsData.satellites, sizeof(lastSatelliteCount) - 1);
+        lastSatelliteCount[sizeof(lastSatelliteCount) - 1] = '\0';
     }
     else
     {
         //Send the last found ones if we have nothing new
-        sendTag("LO", lastLongitude);
-        sendTag("LA", lastLatitude);
-        sendTag("AL", lastAltitude);
+        mainSendTag("LO", lastLongitude);
+        mainSendTag("LA", lastLatitude);
+        mainSendTag("AL", lastAltitude);
     }
     if (gottenImu)
     {
-        sendTag("YA", imuData.yaw);
-        sendTag("PI", imuData.pitch);
-        sendTag("RO", imuData.roll);
-        sendTag("AX", imuData.accelX);
-        sendTag("AY", imuData.accelY);
-        sendTag("AZ", imuData.accelZ);
+        mainSendTag("YA", imuData.yaw);
+        mainSendTag("PI", imuData.pitch);
+        mainSendTag("RO", imuData.roll);
+        mainSendTag("AX", imuData.accelX);
+        mainSendTag("AY", imuData.accelY);
+        mainSendTag("AZ", imuData.accelZ);
     }
-    sendTag("MC", lastCellMmc);
-    sendTag("CD", lastCellCid);
+    mainSendTag("MC", lastCellMmc);
+    mainSendTag("MN", lastCellMnc);
+    mainSendTag("LC", lastCellLac);
+    mainSendTag("CD", lastCellCid);
     //Send extra cell shield tags
     while (cellStoredTagOn > 0)
     {
         cellStoredTagOn--;
-        sendTag(cellStoredTags[cellStoredTagOn], cellStoredData[cellStoredTagOn]);
+        mainSendTag(cellStoredTags[cellStoredTagOn], cellStoredData[cellStoredTagOn]);
     }
 
     //Life left...
     char lifeLeft[10];
     fmtUnsigned(secondsToTimeout, lifeLeft, 10);
-    sendTag("DT", lifeLeft);
+    mainSendTag("DT", lifeLeft);
 
     //Liveliness!
-    sendTag("LV", hasKickedBucket ? "0" : "1");
+    mainSendTag("LV", hasKickedBucket ? "0" : "1");
 
     //Request GPS velocity data
     GPS.print(GPS_VELOCITY_REQUEST);
@@ -555,4 +632,7 @@ void loop()
     {
         CONSOLE.println();
     }
+    
+    // Information sent to the cell shield arduino must be done separately to avoid overworking him.
+    cellShieldSendInformation();
 }
