@@ -42,7 +42,7 @@
 SoftwareSerial softSerial(7, 8);
 
 // 12033470933 is the YUAA twilio
-//#define ENABLE_TWILIO
+#define ENABLE_TWILIO
 char twilioPhoneNumber[] = "12033470933";
 char subscribedPhoneNumbers[MAX_SUBSCRIBERS][12] = {"14018649488"};
 // The index of the next slot to fill with a subscriber
@@ -53,8 +53,8 @@ int subscribedNumberCount = 1;
 
 // 3-character Mobile Country Code
 char mccBuffer[4];
-// 2-character Mobile Network Code
-char mncBuffer[3];
+// 4-character Mobile Network Code
+char mncBuffer[4];
 
 // 4-character (or so?) Location Area Code
 char lacBuffer[5];
@@ -74,10 +74,9 @@ unsigned long millisAtLastArduinoSend;
 // Last time a line was received from the cell shield
 unsigned long lastCellShieldLineTime;
 
-// Whether we have received a LV tag of 0 from the main controller (for lack of liveliness)
+// What the current status of the LV tag from the main controller is. 0 maps to true (not lively) 1 maps to false.
+// This also determines the rate that texts are sent out, between the NORMAL and the FAST intervals.
 bool hasBalloonBeenKilled = false;
-// Whether we need to send text messages at a faster rate
-bool inAlertMode = false;
 
 char getHexOfNibble(char c)
 {
@@ -438,7 +437,7 @@ int handleCellShieldCommand(const char* command) {
             sendTagArduino("KL", "");
             // We will inform people about the killing once it is successful!
             // In the mean time, we do want to enter alert mode!
-            inAlertMode = true;
+            hasBalloonBeenKilled = true;
             BIG_ARDUINO << "Alert mode\n";
         }
         if (strstr(message, GET_INFO_TEXT))
@@ -545,8 +544,8 @@ void storeMccAndMnc(const char* inputLine)
         mccBuffer[3] = '\0';
         
         // Extract MNC
-        memcpy(mncBuffer, mccLocation + 3, 2);
-        mncBuffer[2] = '\0';
+        memcpy(mncBuffer, mccLocation + 3, 3);
+        mncBuffer[3] = '\0';
         
         BIG_ARDUINO << "MCC: " << mccBuffer << " MNC: " << mncBuffer << '\n';
     }
@@ -589,7 +588,7 @@ void addSubscriber(const char* phoneNumber)
 
 int sendInfoIfItsTimeTo()
 {
-    long unsigned delayTime = inAlertMode ? FAST_MESSAGING_INTERVAL : NORMAL_MESSAGING_INTERVAL;
+    long unsigned delayTime = hasBalloonBeenKilled ? FAST_MESSAGING_INTERVAL : NORMAL_MESSAGING_INTERVAL;
     
     if (millis() - millisAtLastArduinoSend >= ARDUINO_SEND_INTERVAL)
     {
@@ -631,8 +630,8 @@ int setupSim()
     if (sendToCellShieldAndConfirm("AT+CMGF=1")) return -1;
     BIG_ARDUINO.println("Done");
     
-    BIG_ARDUINO.println("..to UTF-8");
-    if (sendToCellShieldAndConfirm("AT+CSMP=,,,1")) return -1;
+    BIG_ARDUINO.println("..to ASCII");
+    if (sendToCellShieldAndConfirm("AT+CSMP=,,,0")) return -1;
     BIG_ARDUINO.println("Done");
     
     // Delete all pre-existing text messages
@@ -688,14 +687,24 @@ void checkForControllerInput()
             BIG_ARDUINO << "Got: " << tpData.tag << " with: " << tpData.data << '\n';
             if (strcmp(tpData.tag, "LV") == 0)
             {
+                
                 // We only care for the first byte on the liveliness tag, and we only care whether it is not 0
                 bool imToldImDead = (tpData.data[0] == '0');
                 if (!hasBalloonBeenKilled && imToldImDead)
                 {
                     hasBalloonBeenKilled = true;
-                    // If the balloon is killed, we want to enter alert mode!
-                    inAlertMode = true;
-                    BIG_ARDUINO << "Alert mode\n";
+                    // We send texts at a faster rate!
+                    BIG_ARDUINO << "Alert mode!\n";
+                    
+                    // Give an immediate SMS update
+                    sendTextMessages();
+                }
+                else if (hasBalloonBeenKilled && !imToldImDead)
+                {
+                    // The mains were likely intentionally reset.
+                    // We should be subservient to them.
+                    hasBalloonBeenKilled = false;
+                    BIG_ARDUINO << "Alert mode off!\n";
                     
                     // Give an immediate SMS update
                     sendTextMessages();
