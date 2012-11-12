@@ -48,17 +48,17 @@ int main(int argc, char* argv[])
         return -1;
     }
     // Configure it
-    if (ioctl(uart, GPIO_UART_IOC_SETBAUD, 9600))
+    if (ioctl(uart, GPIO_UART_IOC_SETBAUD, 2400))
     {
         perror("Uart setting baud");
         return -1;
     }
-    if (ioctl(uart, GPIO_UART_IOC_SETRX, 1))
+    if (ioctl(uart, GPIO_UART_IOC_SETRX, 8))
     {
         perror("Uart setting rx pin");
         return -1;
     }
-    if (ioctl(uart, GPIO_UART_IOC_SETTX, 2))
+    if (ioctl(uart, GPIO_UART_IOC_SETTX, 11))
     {
         perror("Uart setting tx pin");
         return -1;
@@ -106,3 +106,4 @@ int main(int argc, char* argv[])
     }
     return 0;
 }
+

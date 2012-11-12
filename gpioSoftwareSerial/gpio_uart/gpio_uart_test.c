@@ -317,9 +317,10 @@ void holdAndSetTx(GpioUart* uart, bool value, struct timespec* lastBitTime, long
     addTimeAndBusyWait(lastBitTime, nanosecondsNeeded);
     
     // Check on quality of timing! TESTING
-    struct timespec endTime;
+    /*struct timespec endTime;
     get_monotonic_boottime(&endTime);
     printk(KERN_INFO "Time Quality Offset %ld", timeDifference(&endTime, lastBitTime));
+    */
     
     // REMOVED FOR TESTING
     // gpio_set_value(uart->txPin, uart->invertingLogic ? !value : value);
@@ -453,7 +454,7 @@ void txSender(unsigned long argument)
     // Because the receiver rx interrupt only fires on changes, if there are no changes,
     // the last value will not be registered. We call the interrupt here as well, to get
     // periodical updates when the value is not actually changing.
-    //rxIsr(uart->rxPin, uart, NULL);
+    rxIsr(uart->rxPin, uart, NULL);
 }
 
 // Check whether the bit buffer currently holds a valid byte.
@@ -558,7 +559,7 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
     
     // TESTING
     // printk(KERN_INFO "XCurrent time: %ld last int.: %ld", currentTime.tv_nsec, uart->rxLastInterruptTime.tv_nsec);
-    long bitTime = timeDifference(&currentTime, &uart->rxLastInterruptTime);
+    /*long bitTime = timeDifference(&currentTime, &uart->rxLastInterruptTime);
     static int iterations = 0;
     static long bitTimeAverage = 0;
     static long bitTimeMin = 0;
@@ -593,7 +594,8 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
         }
     }
     //printk(KERN_INFO "Counting %d bits of %d: %ld out of %ld", bitNumber, uart->rxLastValue, bitTime, bitDelay);
-    
+    */
+
     // Then update the stored time
     uart->rxLastInterruptTime = currentTime;
                     
