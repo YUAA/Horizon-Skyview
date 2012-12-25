@@ -312,7 +312,7 @@ void holdAndSetTx(GpioUart* uart, bool value, struct timespec* lastBitTime, long
 {
     // Save last time and value TESTING
     struct timespec startTime = *lastBitTime;
-    //bool oldValue = uart->rxPinValue;
+    bool oldValue = uart->rxPinValue;
     
     addTimeAndBusyWait(lastBitTime, nanosecondsNeeded);
     
@@ -341,8 +341,12 @@ void holdAndSetTx(GpioUart* uart, bool value, struct timespec* lastBitTime, long
     uart->rxBitTimeA = startTime;
     uart->rxBitTimeB = *lastBitTime;
     
-    rxIsr(uart->rxPin, uart, NULL);
-    
+    // To be realistic to ourselves, only trigger an "interrupt" if we are actually changing the value
+    if (oldValue != uart->rxPinValue)
+    {
+        rxIsr(uart->rxPin, uart, NULL);
+    }    
+
     // TESTING
     //printk(KERN_INFO "Held value %d for %ld (%ld desired), %ld last interrupt", oldValue, bitTime, nanosecondsNeeded, sinceLast);
     /*static int iterations = 0;

@@ -1,6 +1,6 @@
 EXTRA_CFLAGS+=	-Wno-declaration-after-statement -std=gnu99
 
-MODULES	= gpio_uart_test
+MODULES	= gpio_uart
 
 default:	86
 

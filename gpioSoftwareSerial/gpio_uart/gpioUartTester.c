@@ -28,7 +28,8 @@ int main(int argc, char* argv[])
     
     // disable canonical mode processing in the line discipline driver
     // So everything is read in instantly from stdin!
-    terminal_settings.c_lflag &= ~ICANON;
+    // Also, don't echo back characters... so we only see what we receive!
+    terminal_settings.c_lflag &= ~(ICANON | ECHO);
     // We do not want to block with getchar
     // We have no minimum break in receiving characters (VTIME = 0)
     // and we have no minimum number of characters to receive (VMIN = 0)
@@ -48,7 +49,7 @@ int main(int argc, char* argv[])
         return -1;
     }
     // Configure it
-    if (ioctl(uart, GPIO_UART_IOC_SETBAUD, 2400))
+    if (ioctl(uart, GPIO_UART_IOC_SETBAUD, 9600))
     {
         perror("Uart setting baud");
         return -1;

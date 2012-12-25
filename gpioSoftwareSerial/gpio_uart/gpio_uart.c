@@ -77,6 +77,7 @@ typedef struct
     
     // For TESTING
     int interruptsReceived;
+    int interruptErrors;
 } GpioUart;
 
 // Adds a byte to the circular tx buffer. This method is quasi-thread safe.
@@ -299,10 +300,12 @@ void txSender(unsigned long argument)
         if (byteToSend != -1)
         {
             // We use the spinlock to disable interrupts so that we can busy-wait exact timing
-            spin_lock_irqsave(&locker, savedFlags);
+            // TESTING
+            //spin_lock_irqsave(&locker, savedFlags);
+            spin_lock_bh(&locker);
             
             // Make sure we have at least the required stop bits before our start bit
-            long stopBitNanoseconds = bitDelay + (uart->secondStopBit ? bitDelay : 0);
+            long stopBitNanoseconds = 50 * bitDelay + (uart->secondStopBit ? bitDelay : 0);
             
             // Start bit
             holdAndSetTx(uart, false, &lastBitTime, stopBitNanoseconds);
@@ -318,6 +321,7 @@ void txSender(unsigned long argument)
                 // Send the value of the lowest bit
                 holdAndSetTx(uart, bits & 1, &lastBitTime, bitDelay);
                 // Shift out the just-transmitted bit
+
                 bits >>= 1;
             }
             
@@ -331,7 +335,9 @@ void txSender(unsigned long argument)
             holdAndSetTx(uart, true, &lastBitTime, bitDelay);
             
             // The byte is done!
-            spin_unlock_irqrestore(&locker, savedFlags);
+            //TESTING
+            //spin_unlock_irqrestore(&locker, savedFlags);
+            spin_unlock_bh(&locker);
         }
     }
     
@@ -379,7 +385,7 @@ int getByteInBitBuffer(GpioUart* uart)
     if ((uart->rxBitBuffer & startStopBitmask) == stopBitmask)
     {
         // The data are bits 2 through 9 or 3 through 10 
-        int dataByte = uart->rxBitBuffer >> (2 + (uart->secondStopBit ? 1 : 0));
+        int dataByte = (uart->rxBitBuffer >> (2 + (uart->secondStopBit ? 1 : 0))) & 0xff;
         
         // If we have a parity bit, is it correct?
         if (uart->parityBit)
@@ -391,13 +397,18 @@ int getByteInBitBuffer(GpioUart* uart)
                 parityBitValue = 1;
             }
             
-            int bits = dataByte;
+            /*int bits = dataByte;
             int parity = 0;
             for (int i = 0;i < 8; i++)
             {
                 parity ^= (bits & 1);
                 bits >>= 1;
-            }
+            }*/
+            // Quicker parity calculation from http://graphics.stanford.edu/~seander/bithacks.html#ParityParallel
+            int parity = dataByte;
+            parity ^= parity >> 4;
+            parity &= 0xf;
+            parity = (0x6996 >> parity) & 1;
             
             if (parityBitValue == parity)
             {
@@ -426,14 +437,25 @@ int getByteInBitBuffer(GpioUart* uart)
 irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
 {
     GpioUart* uart = (GpioUart*)dev_id;
-   
+    
+    // First, sample the pin
+    int rxPinValue = gpio_get_value(uart->rxPin);
+
     // TESTING
-    uart->interruptsReceived++; 
+    uart->interruptsReceived++;
+    if (rxPinValue == uart->rxLastValue)
+    {
+        uart->interruptErrors++;
+    }
+    //uart->rxLastValue = rxPinValue;
+    //return IRQ_HANDLED; 
 
     // Get current time
     struct timespec currentTime;
     get_monotonic_boottime(&currentTime);
     
+    //return IRQ_HANDLED;
+
     // What is the delay for a bit in nanoseconds?
     long bitDelay = 1000000000L / uart->baudRate;
     
@@ -449,7 +471,7 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
     bitNumber = (bitNumber > frameSize) ? frameSize : bitNumber;
     
     // TESTING
-   printk(KERN_INFO "We got %d bits of %d\n", bitNumber, uart->rxLastValue); 
+   //printk(KERN_INFO "We got %d bits of %d and our value is %d\n", bitNumber, uart->rxLastValue, rxPinValue); 
 
     // Then update the stored time
     uart->rxLastInterruptTime = currentTime;
@@ -474,7 +496,7 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
     }
     
     // Read and set the new value that came from this interrupt
-    uart->rxLastValue = gpio_get_value(uart->rxPin);
+    uart->rxLastValue = rxPinValue;
     
     return IRQ_HANDLED;
 }
@@ -518,7 +540,7 @@ int startUart(GpioUart* uart)
     // of what the input signal is on the rx pin.
     if(request_irq(gpio_to_irq(uart->rxPin),
                          (irq_handler_t)rxIsr, //TESTING
-                         (0*IRQF_TRIGGER_RISING) | IRQF_TRIGGER_FALLING, "GPIO UART rx IRQ", uart))
+                         (1*IRQF_TRIGGER_RISING) | IRQF_TRIGGER_FALLING, "GPIO UART rx IRQ", uart))
     {
         printk(KERN_ERR "Could not register irq for GPIO UART rx\n");
         return -1;
@@ -665,6 +687,7 @@ int uart_open(struct inode* inode, struct file* filePointer)
    
     // TESTING
     uart->interruptsReceived = 0;
+    uart->interruptErrors = 0;
  
     printk(KERN_INFO "Uart opened");
     
@@ -678,6 +701,7 @@ int uart_release(struct inode* inode, struct file* filePointer)
    
     // TESTING
     printk(KERN_INFO "We have %d interrupts at end!\n", ((GpioUart*)filePointer->private_data)->interruptsReceived);
+    printk(KERN_INFO "We have %d interrupt errors at end!\n", ((GpioUart*)filePointer->private_data)->interruptErrors);
  
     // Release the memory
     kfree(filePointer->private_data);
