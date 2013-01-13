@@ -63,6 +63,10 @@ typedef struct
     bool parityBit;
     bool secondStopBit;
     
+    // This is modified as timings are received to attempt to correct for
+    // imperfect oscillator timings on the remote device
+    int modifiedBaudRate;
+    
     // We have two circular buffers for data
     unsigned char rxBuffer[UART_BUFFER_SIZE];
     unsigned char txBuffer[UART_BUFFER_SIZE];
@@ -789,33 +793,48 @@ void relaxSpanTimesAtLevel(GpioUart* uart, int level)
     // The length of time a single bit should occupy ideally.
     long bitDelay = 1000000000L / uart->baudRate;
     
-    // Go through all but the first and last elements in the buffer
+    // printk(KERN_INFO "Now at level %d", level);
+    
+    // Go through all but the last element in the buffer
     // Those will either get their turn when more elements are added, or have already.
     // This way we do not have to worry about going out of index.
     // We go through them backwards, since we are mostly pulling time from the previous element
-    for (int i = BIT_SPAN_BUFFER_SIZE - 1; i-- > 1;)
+    for (int i = BIT_SPAN_BUFFER_SIZE; i-- > 1;)
     {
         long spanTime = getSpanTimeAt(uart, i);
-        // Do nothing if the span before it (and thus this one, too) is not valid
+        // Do nothing if the span before it (and thus this one, too) is invalid
         if (getSpanTimeAt(uart, i - 1) != -1)
         {
             // Is this span a single bit that has been short changed?
             // If so, we want to get it to full time
+            // This is independant of our "level" -- it just takes the highest priority
+            // Though this also assumes we do not have false interrupts.
             if (spanTime < bitDelay)
             {
+                //printk(KERN_INFO "Victim timespan start: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan start: %ld", getSpanTimeAt(uart, i));
+                
                 // We take the loss from the span preceding it. That seems to be where
-                // the losses are from. (this may not hold generally... but does for now)
+                // the losses are from. (this may not hold generally... but does in virtual machine testing)
                 int missing = bitDelay - spanTime;
                 setSpanTimeAt(uart, i - 1, getSpanTimeAt(uart, i - 1) - missing);
                 setSpanTimeAt(uart, i, spanTime + missing);
+                
+                //printk(KERN_INFO "Victim timespan end: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan end: %ld", getSpanTimeAt(uart, i));
             }
             // Does this span have more than a single bit, but only level% or more of the last bit?
             else if (spanTime % bitDelay > bitDelay * level / 100)
             {
-                // Let us take half of what is missing from the one above
+                //printk(KERN_INFO "Victim timespan start: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan start: %ld", getSpanTimeAt(uart, i));
+                
                 int missing = bitDelay - (spanTime % bitDelay);
                 setSpanTimeAt(uart, i - 1, getSpanTimeAt(uart, i - 1) - missing);
                 setSpanTimeAt(uart, i, spanTime + missing);
+                
+                //printk(KERN_INFO "Victim timespan end: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan end: %ld", getSpanTimeAt(uart, i));
             }
         }
     }
@@ -825,12 +844,22 @@ void relaxSpanTimesAtLevel(GpioUart* uart, int level)
 // If we have a time with less than a bits worth of time, for example, we can tell
 // that there has been an error, and we pull time from the surrounding spans.
 // We message like this hoping to improve on noisey timings.
+// Since this is always based on original timings, calling it multiple times
+// will allways yield the same result, instead of them stacking.
 void relaxSpanTimes(GpioUart* uart)
 {
-    // Progressively relax times from levels of 90% down to 50%
-    // This will allow the spans that are more sure (90%) to steal from those
-    // that are less sure (50%), such that then the 50% one may be out of the game.
-    for (int level = 90; level >= 50; level -= 5)
+    // Reset all times to the original times
+    /*for (int i = 0; i < BIT_SPAN_BUFFER_SIZE; i++)
+    {
+        setSpanTimeAt(uart, i, getOriginalSpanTimeAt(uart, i));
+    }*/
+    
+    // Progressively relax times from levels of 100% down to 50%
+    // This will allow the spans that are more sure (say 90%) to steal from those
+    // that are less sure (say 50%), such that then the 50% one may be out of the game.
+    // 100% is done first because regardless of level, times with less than a single bit
+    // should always win.
+    for (int level = 100; level >= 50; level -= 5)
     {
         relaxSpanTimesAtLevel(uart, level);
     }
@@ -850,17 +879,39 @@ void rxIsrBottomHalfFunction(unsigned long data)
     long rawBitTime;
     while ((rawBitTime = removeRawBitTimeAndValue(uart, &rawBitValue)) != -1)
     {
+        // We take our very raw timings and modify them with our hopefully more correct baud rate
+        // To calibrate this, the modifiedBaudRate is originally the same as the set value.
+        // Every time we get a single bit timing in the range of 75% to 125% of the current modified baud rate,
+        // then we slightly modify our modified baud rate value to incorporate the new timing. The single timing
+        // has a low relative weight to insure that changes happen only "slowly"
+        long bitDelay = 1000000000L / uart->modifiedBaudRate;
+        if (rawBitTime >= bitDelay * 75 / 100 && rawBitTime <= bitDelay * 125 / 100)
+        {
+            long modifiedBitDelay = (bitDelay * 63 + rawBitTime) / 64;
+            uart->modifiedBaudRate = 1000000000L / modifiedBitDelay;
+        }
+        
+        // To keep use of this modified baud rate local, we will normalize our times using it to be
+        // in terms of the original baud rate again. This way the times we record for testing will not
+        // be based on different baud rates over time.
+        printk(KERN_INFO "Raw time (original): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
+        rawBitTime = rawBitTime * uart->modifiedBaudRate / uart->baudRate;
+        printk(KERN_INFO "Raw time (modified): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
+        
         //printk(KERN_INFO "Raw time: %ld at value: %d\n", rawBitTime, (int)rawBitValue);
         
-        // Take out the oldest values from the bit span buffer, which are done being there now.
-        long removedSpanTime = getSpanTimeAt(uart, 0);
-        long removedOriginalSpanTime = getOriginalSpanTimeAt(uart, 0);
-        bool removedSpanValue = getSpanValueAt(uart, 0);
         
-        // Now we overwrite the removed values by placing our new ones into the buffer
+        // We read out time spans when they are in the second-to-last position.
+        // We do this because when the last position time spans are in the "relaxing" process,
+        // they are not able to steal time. We want our read values to have just had this opportunity.
+        long removedSpanTime = getSpanTimeAt(uart, 1);
+        long removedOriginalSpanTime = getOriginalSpanTimeAt(uart, 1);
+        bool removedSpanValue = getSpanValueAt(uart, 1);
+        
+        // Now we overwrite the oldest values by placing our new ones into the buffer
         addSpanTimeAndValue(uart, rawBitTime, rawBitValue);
         
-        // Do the relaxation of time values...
+        // Do the relaxation of time values with our new value.
         relaxSpanTimes(uart);
         
         // Now let the removed time and value be processed into bits if they are valid
@@ -1038,6 +1089,7 @@ long uart_ioctl(struct file* filePointer, unsigned int cmd, unsigned long arg)
     {
         case GPIO_UART_IOC_SETBAUD:
             uart->baudRate = arg;
+            uart->modifiedBaudRate = uart->baudRate;
             return 0;
         case GPIO_UART_IOC_GETBAUD:
             return uart->baudRate;
@@ -1134,6 +1186,8 @@ int uart_open(struct inode* inode, struct file* filePointer)
     uart->rxBufferStart = uart->rxBufferTail = 0;
     uart->txBufferStart = uart->txBufferTail = 0;
     
+    uart->modifiedBaudRate = uart->baudRate;
+    
     uart->bitBufferTail = 0;
     uart->bitSpanBufferTail = 0;
     uart->rawBitBufferStart = uart->rawBitBufferTail = 0;
@@ -1154,9 +1208,16 @@ int uart_open(struct inode* inode, struct file* filePointer)
     for (int i = 0; i < BIT_SPAN_BUFFER_SIZE; i++)
     {
         uart->bitSpanTimeBuffer[i] = -1;
+        uart->bitSpanOriginalTimeBuffer[i] = -1;
         uart->bitSpanValueBuffer[i] = -1;
     }
     
+    // Same as above for these values
+    for (int i = 0; i < RAW_BIT_BUFFER_SIZE; i++)
+    {
+        uart->rawBitTimeBuffer[i] = -1;
+        uart->rawBitValueBuffer[i] = -1;
+    }
     
     get_monotonic_boottime(&uart->rxLastInterruptTime);
     uart->rxLastValue = true; // Line should default high (unused)
@@ -1182,7 +1243,8 @@ int uart_release(struct inode* inode, struct file* filePointer)
     stopUart(uart);
    
     // TESTING
-    printk(KERN_INFO "Time per bit: %ld\n", 1000000000L / uart->baudRate);
+    printk(KERN_INFO "Time per bit (original): %ld\n", 1000000000L / uart->baudRate);
+    printk(KERN_INFO "Time per bit (modified): %ld\n", 1000000000L / uart->modifiedBaudRate);
     printk(KERN_INFO "We have %d interrupts at end!\n", uart->interruptsReceived);
     printk(KERN_INFO "We have %d interrupt errors at end!\n",uart->interruptErrors);
  

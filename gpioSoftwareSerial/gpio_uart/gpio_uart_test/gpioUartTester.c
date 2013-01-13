@@ -49,7 +49,7 @@ int main(int argc, char* argv[])
         return -1;
     }
     // Configure it
-    if (ioctl(uart, GPIO_UART_IOC_SETBAUD, 20000))
+    if (ioctl(uart, GPIO_UART_IOC_SETBAUD, 9600))
     {
         perror("Uart setting baud");
         return -1;
