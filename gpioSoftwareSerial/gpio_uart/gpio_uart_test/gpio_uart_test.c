@@ -802,6 +802,11 @@ void relaxSpanTimesAtLevel(GpioUart* uart, int level)
     for (int i = BIT_SPAN_BUFFER_SIZE; i-- > 1;)
     {
         long spanTime = getSpanTimeAt(uart, i);
+        // Do not bother trying to give time to the span if it is very long (> 12 bits worth, the maximum uart frame size)
+        if (spanTime > bitDelay * 12)
+        {
+            continue;
+        }
         // Do nothing if the span before it (and thus this one, too) is invalid
         if (getSpanTimeAt(uart, i - 1) != -1)
         {

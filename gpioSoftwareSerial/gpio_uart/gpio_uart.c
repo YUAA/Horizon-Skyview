@@ -31,6 +31,16 @@ MODULE_LICENSE("Dual BSD/GPL");
 
 #define UART_BUFFER_SIZE 4096
 
+//#define BIT_BUFFER_SIZE 192
+#define BIT_BUFFER_SIZE 22
+
+// Make this buffer fairly small, so that values do not get
+// stuck in here for too long, but big enough to allow some interesting
+// moving around of the time values.
+#define BIT_SPAN_BUFFER_SIZE 5
+
+#define RAW_BIT_BUFFER_SIZE 16
+
 // Atomic GCC primitive function
 // Sets variable to newValue if it is still equal to oldValue
 // (type* variable, type oldValue, type newValue)
@@ -47,6 +57,10 @@ typedef struct
     bool parityBit;
     bool secondStopBit;
     
+    // This is modified as timings are received to attempt to correct for
+    // imperfect oscillator timings on the remote device
+    int modifiedBaudRate;
+    
     // We have two circular buffers for data
     unsigned char rxBuffer[UART_BUFFER_SIZE];
     unsigned char txBuffer[UART_BUFFER_SIZE];
@@ -60,6 +74,38 @@ typedef struct
     // Thus, one byte of the buffer between the start and tail is unused when full.
     int rxBufferTail;
     int txBufferTail;
+    
+    // Circular buffer for bit values and scores
+    bool bitValueBuffer[BIT_BUFFER_SIZE];
+    int bitScoreBuffer[BIT_BUFFER_SIZE];
+    // Since this buffer will never be explicitly removed from,
+    // we will only have a tail for it. It will always be "full".
+    int bitBufferTail;
+    
+    // Circular buffer for raw bit time spans and their values. This is where they may be processed and modified,
+    // unlike the plain rawBitTimeBuffer which is strictly for getting these values from the top half of the interrupt handler.
+    long bitSpanTimeBuffer[BIT_SPAN_BUFFER_SIZE];
+    // We also keep the original unmassaged times for comparison
+    long bitSpanOriginalTimeBuffer[BIT_SPAN_BUFFER_SIZE];
+    bool bitSpanValueBuffer[BIT_SPAN_BUFFER_SIZE];
+    // This buffer operates just like the "bitBuffer"
+    int bitSpanBufferTail;
+    
+    // Circular buffer for communication from the top half to the bottom half of the rxIsr handler.
+    // This is necessary so that the bottom half can lock its data without losing data from the top half
+    // And allowing there to be no troubles with mutliple bottom halves running concurrently.
+    long rawBitTimeBuffer[RAW_BIT_BUFFER_SIZE];
+    bool rawBitValueBuffer[RAW_BIT_BUFFER_SIZE];
+    int rawBitBufferStart;
+    int rawBitBufferTail;
+    
+    // The tasklet structure that runs the bottom half of the rx interrupt handling
+    struct tasklet_struct rxIsrBottomHalfTasklet;
+    
+    // Lock on the processing of bit time data, that is, bitTimeBuffer and all the related buffers
+    // This lock makes sure that multiple instances of the bottom half do not execute concurrently
+    // and meddle all the data up.
+    spinlock_t rxProcessingLock;
     
     // Individual bits that have been received by rx interrupts
     int rxBitBuffer;
@@ -79,6 +125,152 @@ typedef struct
     int interruptsReceived;
     int interruptErrors;
 } GpioUart;
+
+// Adds a bit with the value and a score of 0 to the circular bit buffer.
+// No thread-safety stuff in this method itself.
+// Locking should be done separately...
+void addBitWithValue(GpioUart* uart, bool bitValue)
+{
+    int nextTail = (uart->bitBufferTail + 1) % BIT_BUFFER_SIZE;
+    
+    uart->bitValueBuffer[nextTail] = bitValue;
+    uart->bitScoreBuffer[nextTail] = 0;
+    uart->bitBufferTail = nextTail;
+}
+
+// Index may range from 0 to BIT_BUFFER_SIZE - 1
+// Where 0 will retrieve the oldest element.
+bool getBitValueAt(GpioUart* uart, int index)
+{
+    // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
+    return uart->bitValueBuffer[(uart->bitBufferTail + 1 + index) % BIT_BUFFER_SIZE];
+}
+
+// Index may range from 0 to BIT_BUFFER_SIZE - 1
+// Where 0 will retrieve the oldest element.
+int getBitScoreAt(GpioUart* uart, int index)
+{
+    // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
+    return uart->bitScoreBuffer[(uart->bitBufferTail + 1 + index) % BIT_BUFFER_SIZE];
+}
+
+// Index may range from 0 to BIT_BUFFER_SIZE - 1
+// Where 0 will retrieve the oldest element.
+void setBitScoreAt(GpioUart* uart, int index, int newScore)
+{
+    // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
+    uart->bitScoreBuffer[(uart->bitBufferTail + 1 + index) % BIT_BUFFER_SIZE] = newScore;
+}
+
+// Adds a bit span with the value and time given the circular bit span buffer.
+// No thread-safety stuff in this method itself.
+// Locking should be done separately...
+void addSpanTimeAndValue(GpioUart* uart, long time, bool value)
+{
+    int nextTail = (uart->bitSpanBufferTail + 1) % BIT_SPAN_BUFFER_SIZE;
+    
+    uart->bitSpanValueBuffer[nextTail] = value;
+    uart->bitSpanTimeBuffer[nextTail] = time;
+    uart->bitSpanOriginalTimeBuffer[nextTail] = time;
+    uart->bitSpanBufferTail = nextTail;
+}
+
+// Index may range from 0 to BIT_SPAN_BUFFER_SIZE - 1
+// Where 0 will retrieve the oldest element.
+bool getSpanValueAt(GpioUart* uart, int index)
+{
+    // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
+    return uart->bitSpanValueBuffer[(uart->bitSpanBufferTail + 1 + index) % BIT_SPAN_BUFFER_SIZE];
+}
+
+// Index may range from 0 to BIT_SPAN_BUFFER_SIZE - 1
+// Where 0 will retrieve the oldest element.
+long getSpanTimeAt(GpioUart* uart, int index)
+{
+    // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
+    return uart->bitSpanTimeBuffer[(uart->bitSpanBufferTail + 1 + index) % BIT_SPAN_BUFFER_SIZE];
+}
+
+// Index may range from 0 to BIT_SPAN_BUFFER_SIZE - 1
+// Where 0 will retrieve the oldest element.
+long getOriginalSpanTimeAt(GpioUart* uart, int index)
+{
+    // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
+    return uart->bitSpanOriginalTimeBuffer[(uart->bitSpanBufferTail + 1 + index) % BIT_SPAN_BUFFER_SIZE];
+}
+
+// Index may range from 0 to BIT_SPAN_BUFFER_SIZE - 1
+// Where 0 will retrieve the oldest element.
+void setSpanTimeAt(GpioUart* uart, int index, long newTime)
+{
+    // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
+    uart->bitSpanTimeBuffer[(uart->bitSpanBufferTail + 1 + index) % BIT_SPAN_BUFFER_SIZE] = newTime;
+}
+
+// Adds a byte to the circular tx buffer. This method is quasi-thread safe.
+// It is ok for this method and the corresponding removeTxByte method to execute
+// concurrently, but it is not safe multiple instances of this method to execute concurrently.
+void addRawBitTimeAndValue(GpioUart* uart, long time, bool value)
+{
+    int nextTail = (uart->rawBitBufferTail + 1) % RAW_BIT_BUFFER_SIZE;
+    
+    // Are we full?
+    if (uart->rawBitBufferStart == nextTail)
+    {
+        // It is safe to set this value, because this byte spot is unused.
+        uart->rawBitTimeBuffer[uart->rawBitBufferTail] = time;
+        uart->rawBitValueBuffer[uart->rawBitBufferTail] = value;
+        
+        // Attempt to set the new start value if it hasn't changed
+        // if it has already, then that is ok
+        // (then the buffer is not really full and this reduces to the else case)
+        // (the byte we were going to remove to make more room has already been sent).
+        int nextStart = (nextTail + 1) % UART_BUFFER_SIZE;
+        __sync_bool_compare_and_swap(&uart->rawBitBufferStart, nextTail, nextStart);
+        
+        // We set the tail after the start so that the buffer never appears empty (tail == start)
+        // This is safe because the remove function does not modify the tail.
+        uart->rawBitBufferTail = nextTail;
+    }
+    else
+    {
+        uart->rawBitTimeBuffer[uart->rawBitBufferTail] = time;
+        uart->rawBitValueBuffer[uart->rawBitBufferTail] = value;
+        uart->rawBitBufferTail = nextTail;
+    }
+}
+
+// Removes and returns a bit time and value pair from the circular tx buffer. This method is thread safe.
+// Because there are two values to return, the bitValue is put in the pointer given and the bitTime is directly returned.
+// Returns -1 for no more bytes. (an invalid bitTime)
+long removeRawBitTimeAndValue(GpioUart* uart, bool* bitValue)
+{    
+    // Are we empty?
+    if (uart->rawBitBufferStart == uart->rawBitBufferTail)
+    {
+        return -1;
+    }
+    else
+    {
+        // Loop until we succeed in popping a value.
+        while (true)
+        {
+            int start = uart->rawBitBufferStart;
+            int time = uart->rawBitTimeBuffer[start];
+            int value = uart->rawBitValueBuffer[start];
+            
+            int nextStart = (start + 1) % RAW_BIT_BUFFER_SIZE;
+            
+            // Attempt to update start
+            if (__sync_bool_compare_and_swap(&uart->rawBitBufferStart, start, nextStart))
+            {
+                // Start did not get changed in the interim, so our values are correct.
+                *bitValue = value;
+                return time;
+            }
+        }
+    }
+}
 
 // Adds a byte to the circular tx buffer. This method is quasi-thread safe.
 // It is ok for this method and the corresponding removeTxByte method to execute
@@ -275,7 +467,6 @@ void txSender(unsigned long argument)
 {
     GpioUart* uart = (GpioUart*)argument;
     
-    unsigned long savedFlags;
     spinlock_t locker;
     spin_lock_init(&locker);
     
@@ -351,13 +542,31 @@ void txSender(unsigned long argument)
     //TESTING rxIsr(uart->rxPin, uart, NULL);
 }
 
-// Check whether the bit buffer currently holds a valid byte.
+// Check whether the bit buffer currently holds a valid byte at the location index.
 // If so, we return the value. If not, we return -1.
-int getByteInBitBuffer(GpioUart* uart)
+int getByteInBitBufferAt(GpioUart* uart, int index)
 {
     // What is the size of a valid frame for us?
     // We start with at least one stop bit, then a start bit, then 8 data bits, 1 possible parity, then 1 or 2 stop bits
     int frameSize = 11 + (uart->secondStopBit ? 2 : 0) + (uart->parityBit ? 1 : 0);
+    
+    // The very first thing we do is extract the desired bits from the bit buffer
+    // The bit at index is the oldest (chronoligically) of the bits in the buffer being checked.
+    // We want the oldest bit at bit 0 of targetBits, since we want the data bytes to be already in the right order.
+    // The bits come in least significant first time-wise, so we want the oldest data bits in the least significant bits of targetBits.
+    int targetBits = 0;
+    // Go from newest to oldest
+    for (int i = frameSize; i-- > 0;)
+    {
+        // Shift existing bits
+        targetBits <<= 1;
+        if (getBitValueAt(uart, index + i))
+        {
+            // This bit is on!
+            targetBits |= 1;
+        }
+    }
+    //printk(KERN_INFO "Checking target bits with value of %d\n", targetBits);
     
     // Are the stop bit(s) and start bit in position?
     
@@ -382,28 +591,28 @@ int getByteInBitBuffer(GpioUart* uart)
     }
     
     // Now, looking at just these specific bits, are all (and only) the stop bits high?
-    if ((uart->rxBitBuffer & startStopBitmask) == stopBitmask)
+    if ((targetBits & startStopBitmask) == stopBitmask)
     {
         // The data are bits 2 through 9 or 3 through 10 
-        int dataByte = (uart->rxBitBuffer >> (2 + (uart->secondStopBit ? 1 : 0))) & 0xff;
+        int dataByte = (targetBits >> (2 + (uart->secondStopBit ? 1 : 0))) & 0xff;
         
         // If we have a parity bit, is it correct?
         if (uart->parityBit)
         {
             int parityBitValue = 0;
             // Parity bit is the second or third to last
-            if (uart->rxBitBuffer & (1 << (frameSize - 2 - (uart->secondStopBit ? 1 : 0))))
+            if (targetBits & (1 << (frameSize - 2 - (uart->secondStopBit ? 1 : 0))))
             {
                 parityBitValue = 1;
             }
             
-            /*int bits = dataByte;
-            int parity = 0;
-            for (int i = 0;i < 8; i++)
-            {
-                parity ^= (bits & 1);
-                bits >>= 1;
-            }*/
+            //int bits = dataByte;
+            //int parity = 0;
+            //for (int i = 0;i < 8; i++)
+            //{
+            //    parity ^= (bits & 1);
+            //    bits >>= 1;
+            //}
             // Quicker parity calculation from http://graphics.stanford.edu/~seander/bithacks.html#ParityParallel
             int parity = dataByte;
             parity ^= parity >> 4;
@@ -413,8 +622,6 @@ int getByteInBitBuffer(GpioUart* uart)
             if (parityBitValue == parity)
             {
                 // We have a byte!
-                // Clear the bit buffer to all ones in the frame (and the remainder to zeros)
-                uart->rxBitBuffer = (1 << frameSize) - 1;
                 return dataByte;
             }
             else
@@ -424,13 +631,244 @@ int getByteInBitBuffer(GpioUart* uart)
         }
         else
         {
-            // Clear the bit buffer to all ones in the frame (and the remainder to zeros)
-            uart->rxBitBuffer = (1 << frameSize) - 1;
             return dataByte;
         }
     }
     // No byte for us!
     return -1;
+}
+
+void processSpanTimeAndValue(GpioUart* uart, long spanTime, long originalSpanTime, bool spanValue)
+{
+    // Divide it into bits...
+    
+    // The length of time a single bit should occupy ideally.
+    long bitDelay = 1000000000L / uart->baudRate;
+    
+    // How many bit times have there been?
+    // We round this up to help with slight misalignment, so 0.5 -> 1, 1.5 -> 2
+    long bitNumber = (spanTime + bitDelay / 2) / bitDelay;
+                    
+    // What is the size of a valid frame for us?
+    // We start with one or two stop bits (not technically in the frame), then a start bit, then 8 data bits, 1 possible parity, then 1 or 2 stop bits
+    int frameSize = 11 + (uart->secondStopBit ? 2 : 0) + (uart->parityBit ? 1 : 0);
+    // The base frame size does not include the beginning stop bits, which do not technically belong to the frame.
+    // This base frame size makes more sense to use, if say, you want to go up to the next frame; this is the number of bits away it is.
+    int baseFrameSize = 10 + (uart->secondStopBit ? 1 : 0) + (uart->parityBit ? 1 : 0);
+    
+    // No point in flushing our buffer out with more bits than it holds.
+    bitNumber = (bitNumber > BIT_BUFFER_SIZE) ? BIT_BUFFER_SIZE : bitNumber;
+    
+    // Give out our numbers!
+    printk(KERN_INFO "Processed time: %ld (was %ld) at value: %d -- %d bits\n", spanTime, originalSpanTime, (int)spanValue, (int)bitNumber);
+    
+    // We add in each one at a time...
+    for (int i = 0; i < bitNumber; i++)
+    {
+        // Add the bit to our bit buffer, use either the firstLastBitTime or bitDelay as the time, depending
+        addBitWithValue(uart, spanValue);
+        
+        // There will now be another bit whose UART frame this new bit may have just completed.
+        int newlyCompletedFrameBitIndex = BIT_BUFFER_SIZE - frameSize;
+        // But we must make sure it is a valid bit (score of 0, not -1)
+        if (getBitScoreAt(uart, newlyCompletedFrameBitIndex) == 0 &&
+            getByteInBitBufferAt(uart, newlyCompletedFrameBitIndex) != -1)
+        {
+            // The score of this bit is 1 plus the score of the bit preceding it by exactly one frame
+            // This score gauges how "sure" we can be that a real byte is contained in the frame starting at this bit.
+            // Of course, if the previous frame bit has a score of -1 (meaning invalid) we don't add that
+            int previousFrameBitScore = getBitScoreAt(uart, newlyCompletedFrameBitIndex - baseFrameSize);
+            int newBitScore = 1 + ((previousFrameBitScore != -1) ? previousFrameBitScore : 0);
+            
+            setBitScoreAt(uart, newlyCompletedFrameBitIndex, newBitScore);
+            printk(KERN_INFO "We got a valid frame at %d, scored at %d\n", newlyCompletedFrameBitIndex, newBitScore);
+        }
+        
+        // Only check for a byte at the end of the buffer if we do not have any bits marked with a score of -1
+        // If we do, these bits have already been interpreted as a byte and we want to finish filling up the bit buffer
+        // before we try to look for another byte. (they would be the oldest bits, and contiguous, hence we only check index 0)
+        if (getBitScoreAt(uart, 0) != -1)
+        {
+            int bestScore = 0;
+            int bestScoreIndex = 0;
+            // Check all the oldest entries in the bit buffer for a byte
+            for (int k = 0; k < baseFrameSize; k++)
+            {
+                int score = getBitScoreAt(uart, k);
+                if (score > bestScore)
+                {
+                    bestScore = score;
+                    bestScoreIndex = k;
+                }
+            }
+            
+            // Do we have a byte at all? If so, let us take it!
+            if (bestScore >= 1)
+            {
+                int dataByte = getByteInBitBufferAt(uart, bestScoreIndex);
+                if (dataByte == -1)
+                {
+                    printk(KERN_ERR "Something has gone terribly wrong! Bit buffer corrupt!\n");
+                }
+                else
+                {
+                    addRxByte(uart, dataByte);
+                }
+                
+                // Clear the scores of the frame bits that we read as a bit to invalid (-1), so they can't be interpreted again.
+                // The frame has bits from the base index (the oldest bit) to the newer ones, at higher indexes.
+                for (int k = 0; k < baseFrameSize; k++)
+                {
+                    int index = bestScoreIndex + k;
+                    setBitScoreAt(uart, index, -1);
+                }
+            }
+        }
+    }
+}
+
+// This does span time messaging, but only gives time to spans that are at least at level percent.
+// So if level = 90, only spans at say 190% or 290% of bitDelay, will steal more time.
+// However, if spans with less than 100% will always steal time.
+void relaxSpanTimesAtLevel(GpioUart* uart, int level)
+{
+    // The length of time a single bit should occupy ideally.
+    long bitDelay = 1000000000L / uart->baudRate;
+    
+    // printk(KERN_INFO "Now at level %d", level);
+    
+    // Go through all but the last element in the buffer
+    // Those will either get their turn when more elements are added, or have already.
+    // This way we do not have to worry about going out of index.
+    // We go through them backwards, since we are mostly pulling time from the previous element
+    for (int i = BIT_SPAN_BUFFER_SIZE; i-- > 1;)
+    {
+        long spanTime = getSpanTimeAt(uart, i);
+        // Do not bother trying to give time to the span if it is very long (> 12 bits worth, the maximum uart frame size)
+        if (spanTime > bitDelay * 12)
+        {
+            continue;
+        }
+        // Do nothing if the span before it (and thus this one, too) is invalid
+        if (getSpanTimeAt(uart, i - 1) != -1)
+        {
+            // Is this span a single bit that has been short changed?
+            // If so, we want to get it to full time
+            // This is independant of our "level" -- it just takes the highest priority
+            // Though this also assumes we do not have false interrupts.
+            if (spanTime < bitDelay)
+            {
+                //printk(KERN_INFO "Victim timespan start: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan start: %ld", getSpanTimeAt(uart, i));
+                
+                // We take the loss from the span preceding it. That seems to be where
+                // the losses are from. (this may not hold generally... but does in virtual machine testing)
+                int missing = bitDelay - spanTime;
+                setSpanTimeAt(uart, i - 1, getSpanTimeAt(uart, i - 1) - missing);
+                setSpanTimeAt(uart, i, spanTime + missing);
+                
+                //printk(KERN_INFO "Victim timespan end: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan end: %ld", getSpanTimeAt(uart, i));
+            }
+            // Does this span have more than a single bit, but only level% or more of the last bit?
+            else if (spanTime % bitDelay > bitDelay * level / 100)
+            {
+                //printk(KERN_INFO "Victim timespan start: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan start: %ld", getSpanTimeAt(uart, i));
+                
+                int missing = bitDelay - (spanTime % bitDelay);
+                setSpanTimeAt(uart, i - 1, getSpanTimeAt(uart, i - 1) - missing);
+                setSpanTimeAt(uart, i, spanTime + missing);
+                
+                //printk(KERN_INFO "Victim timespan end: %ld", getSpanTimeAt(uart, i - 1));
+                //printk(KERN_INFO "Thief timespan end: %ld", getSpanTimeAt(uart, i));
+            }
+        }
+    }
+}
+
+// This takes the spans in the bit span buffer and massages the times around
+// If we have a time with less than a bits worth of time, for example, we can tell
+// that there has been an error, and we pull time from the surrounding spans.
+// We message like this hoping to improve on noisey timings.
+// Since this is always based on original timings, calling it multiple times
+// will allways yield the same result, instead of them stacking.
+void relaxSpanTimes(GpioUart* uart)
+{
+    // Reset all times to the original times
+    /*for (int i = 0; i < BIT_SPAN_BUFFER_SIZE; i++)
+    {
+        setSpanTimeAt(uart, i, getOriginalSpanTimeAt(uart, i));
+    }*/
+    
+    // Progressively relax times from levels of 100% down to 50%
+    // This will allow the spans that are more sure (say 90%) to steal from those
+    // that are less sure (say 50%), such that then the 50% one may be out of the game.
+    // 100% is done first because regardless of level, times with less than a single bit
+    // should always win.
+    for (int level = 100; level >= 50; level -= 5)
+    {
+        relaxSpanTimesAtLevel(uart, level);
+    }
+}
+
+// The bottom half of the px pin interrupt handler
+// This bottom half is implemented as a tasklet
+void rxIsrBottomHalfFunction(unsigned long data)
+{
+    GpioUart* uart = (GpioUart*)data;
+    
+    // We do not want two of these bottom halves to run concurrently
+    spin_lock(&uart->rxProcessingLock);
+    
+    // Process all raw value pairs from the interrupts
+    bool rawBitValue;
+    long rawBitTime;
+    while ((rawBitTime = removeRawBitTimeAndValue(uart, &rawBitValue)) != -1)
+    {
+        // We take our very raw timings and modify them with our hopefully more correct baud rate
+        // To calibrate this, the modifiedBaudRate is originally the same as the set value.
+        // Every time we get a single bit timing in the range of 75% to 125% of the current modified baud rate,
+        // then we slightly modify our modified baud rate value to incorporate the new timing. The single timing
+        // has a low relative weight to insure that changes happen only "slowly"
+        long bitDelay = 1000000000L / uart->modifiedBaudRate;
+        if (rawBitTime >= bitDelay * 75 / 100 && rawBitTime <= bitDelay * 125 / 100)
+        {
+            long modifiedBitDelay = (bitDelay * 63 + rawBitTime) / 64;
+            uart->modifiedBaudRate = 1000000000L / modifiedBitDelay;
+        }
+        
+        // To keep use of this modified baud rate local, we will normalize our times using it to be
+        // in terms of the original baud rate again. This way the times we record for testing will not
+        // be based on different baud rates over time.
+        printk(KERN_INFO "Raw time (original): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
+        rawBitTime = rawBitTime * uart->modifiedBaudRate / uart->baudRate;
+        printk(KERN_INFO "Raw time (modified): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
+        
+        //printk(KERN_INFO "Raw time: %ld at value: %d\n", rawBitTime, (int)rawBitValue);
+        
+        
+        // We read out time spans when they are in the second-to-last position.
+        // We do this because when the last position time spans are in the "relaxing" process,
+        // they are not able to steal time. We want our read values to have just had this opportunity.
+        long removedSpanTime = getSpanTimeAt(uart, 1);
+        long removedOriginalSpanTime = getOriginalSpanTimeAt(uart, 1);
+        bool removedSpanValue = getSpanValueAt(uart, 1);
+        
+        // Now we overwrite the oldest values by placing our new ones into the buffer
+        addSpanTimeAndValue(uart, rawBitTime, rawBitValue);
+        
+        // Do the relaxation of time values with our new value.
+        relaxSpanTimes(uart);
+        
+        // Now let the removed time and value be processed into bits if they are valid
+        if (removedSpanTime != -1)
+        {
+            processSpanTimeAndValue(uart, removedSpanTime, removedOriginalSpanTime, removedSpanValue);
+        }
+    }
+    
+    spin_unlock(&uart->rxProcessingLock);
 }
 
 // Interrupt handler for the rx pin
@@ -440,6 +878,8 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
     
     // First, sample the pin
     int rxPinValue = gpio_get_value(uart->rxPin);
+    // invert the value if need be.
+    rxPinValue = uart->invertingLogic ? !rxPinValue : rxPinValue;
 
     // TESTING
     uart->interruptsReceived++;
@@ -454,10 +894,8 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
     struct timespec currentTime;
     get_monotonic_boottime(&currentTime);
     
-    //return IRQ_HANDLED;
-
     // What is the delay for a bit in nanoseconds?
-    long bitDelay = 1000000000L / uart->baudRate;
+    /*long bitDelay = 1000000000L / uart->baudRate;
     
     // How many bit times have there been on the old value? (since the last interrupt)
     // We round this up to help with slight misalignment, so 0.5 -> 1, 1.5 -> 2
@@ -493,10 +931,22 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
             // Byteage!
             addRxByte(uart, dataByte);
         }
-    }
+    }*/
     
-    // Read and set the new value that came from this interrupt
+    long timePassed = timeDifference(&currentTime, &uart->rxLastInterruptTime);
+    
+    // Add the record of passed time on the old value.
+    addRawBitTimeAndValue(uart, timePassed, uart->rxLastValue);
+    
+    // Then update the stored time
+    uart->rxLastInterruptTime = currentTime;
+    // Update value from this interrupt
     uart->rxLastValue = rxPinValue;
+    
+    // Schedule tasklet bottom half
+    // This will do the job of processing the passed time and making sense out of it
+    // turning it into bits and bits into uart frames and those into bytes.
+    tasklet_schedule(&uart->rxIsrBottomHalfTasklet);
     
     return IRQ_HANDLED;
 }
@@ -581,6 +1031,7 @@ long uart_ioctl(struct file* filePointer, unsigned int cmd, unsigned long arg)
     {
         case GPIO_UART_IOC_SETBAUD:
             uart->baudRate = arg;
+            uart->modifiedBaudRate = uart->baudRate;
             return 0;
         case GPIO_UART_IOC_GETBAUD:
             return uart->baudRate;
@@ -677,7 +1128,39 @@ int uart_open(struct inode* inode, struct file* filePointer)
     uart->rxBufferStart = uart->rxBufferTail = 0;
     uart->txBufferStart = uart->txBufferTail = 0;
     
-    uart->rxBitBuffer = 0;
+    uart->modifiedBaudRate = uart->baudRate;
+    
+    uart->bitBufferTail = 0;
+    uart->bitSpanBufferTail = 0;
+    uart->rawBitBufferStart = uart->rawBitBufferTail = 0;
+    tasklet_init(&uart->rxIsrBottomHalfTasklet, rxIsrBottomHalfFunction, (unsigned long)uart);
+    spin_lock_init(&uart->rxProcessingLock);
+    
+    // Prefill the bitScoreBuffer with -1 values to indicate none of the bits in it are valid
+    // Also prefill the bitValueBuffer with 1/true values (since the line held high is inactive)
+    // And just for fun (and prudence), the times to -1...
+    for (int i = 0; i < BIT_BUFFER_SIZE; i++)
+    {
+        uart->bitScoreBuffer[i] = -1;
+        uart->bitValueBuffer[i] = true;
+    }
+    
+    // Prefill the bit span buffer times to -1, to indicate invalid.
+    // The bools to "-1" not really a bool value, for debugging help
+    for (int i = 0; i < BIT_SPAN_BUFFER_SIZE; i++)
+    {
+        uart->bitSpanTimeBuffer[i] = -1;
+        uart->bitSpanOriginalTimeBuffer[i] = -1;
+        uart->bitSpanValueBuffer[i] = -1;
+    }
+    
+    // Same as above for these values
+    for (int i = 0; i < RAW_BIT_BUFFER_SIZE; i++)
+    {
+        uart->rawBitTimeBuffer[i] = -1;
+        uart->rawBitValueBuffer[i] = -1;
+    }
+    
     get_monotonic_boottime(&uart->rxLastInterruptTime);
     uart->rxLastValue = true; // Line should default high (unused)
     
@@ -696,12 +1179,16 @@ int uart_open(struct inode* inode, struct file* filePointer)
 
 int uart_release(struct inode* inode, struct file* filePointer)
 {
+    GpioUart* uart = (GpioUart*)filePointer->private_data;
+    
     // Make sure to stop it!
-    stopUart((GpioUart*)filePointer->private_data);
+    stopUart(uart);
    
     // TESTING
-    printk(KERN_INFO "We have %d interrupts at end!\n", ((GpioUart*)filePointer->private_data)->interruptsReceived);
-    printk(KERN_INFO "We have %d interrupt errors at end!\n", ((GpioUart*)filePointer->private_data)->interruptErrors);
+    printk(KERN_INFO "Time per bit (original): %ld\n", 1000000000L / uart->baudRate);
+    printk(KERN_INFO "Time per bit (modified): %ld\n", 1000000000L / uart->modifiedBaudRate);
+    printk(KERN_INFO "We have %d interrupts at end!\n", uart->interruptsReceived);
+    printk(KERN_INFO "We have %d interrupt errors at end!\n",uart->interruptErrors);
  
     // Release the memory
     kfree(filePointer->private_data);
