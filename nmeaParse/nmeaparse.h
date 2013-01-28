@@ -1,3 +1,5 @@
+#include <stdbool.h>
+
 #ifndef NMEA_PARSE
 #define NMEA_PARSE
 
