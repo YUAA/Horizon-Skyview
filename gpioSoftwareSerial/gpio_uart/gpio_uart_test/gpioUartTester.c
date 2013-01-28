@@ -25,7 +25,7 @@ int main(int argc, char* argv[])
     
     // Save old temrinal settings
     struct termios oldSettings = terminal_settings;
-    
+        
     // disable canonical mode processing in the line discipline driver
     // So everything is read in instantly from stdin!
     // Also, don't echo back characters... so we only see what we receive!
@@ -46,27 +46,37 @@ int main(int argc, char* argv[])
     if (uart == -1)
     {
         perror("Opening /dev/gpio_uart");
+        // Set terminal settings back
+        tcsetattr(0, TCSANOW, &oldSettings);
         return -1;
     }
     // Configure it
     if (ioctl(uart, GPIO_UART_IOC_SETBAUD, 9600))
     {
         perror("Uart setting baud");
+        // Set terminal settings back
+        tcsetattr(0, TCSANOW, &oldSettings);
         return -1;
     }
     if (ioctl(uart, GPIO_UART_IOC_SETRX, 8))
     {
         perror("Uart setting rx pin");
+        // Set terminal settings back
+        tcsetattr(0, TCSANOW, &oldSettings);
         return -1;
     }
     if (ioctl(uart, GPIO_UART_IOC_SETTX, 11))
     {
         perror("Uart setting tx pin");
+        // Set terminal settings back
+        tcsetattr(0, TCSANOW, &oldSettings);
         return -1;
     }
     if (ioctl(uart, GPIO_UART_IOC_START))
     {
         perror("Uart starting");
+        // Set terminal settings back
+        tcsetattr(0, TCSANOW, &oldSettings);
         return -1;
     }
     

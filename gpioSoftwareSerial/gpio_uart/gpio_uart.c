@@ -35,7 +35,7 @@ MODULE_LICENSE("Dual BSD/GPL");
 #define BIT_BUFFER_SIZE 22
 
 // Make this buffer fairly small, so that values do not get
-// stuck in here for too long, but big enough to allow some interesting
+// stuck in here for too int64_t, but big enough to allow some interesting
 // moving around of the time values.
 #define BIT_SPAN_BUFFER_SIZE 5
 
@@ -84,9 +84,9 @@ typedef struct
     
     // Circular buffer for raw bit time spans and their values. This is where they may be processed and modified,
     // unlike the plain rawBitTimeBuffer which is strictly for getting these values from the top half of the interrupt handler.
-    long bitSpanTimeBuffer[BIT_SPAN_BUFFER_SIZE];
+    int64_t bitSpanTimeBuffer[BIT_SPAN_BUFFER_SIZE];
     // We also keep the original unmassaged times for comparison
-    long bitSpanOriginalTimeBuffer[BIT_SPAN_BUFFER_SIZE];
+    int64_t bitSpanOriginalTimeBuffer[BIT_SPAN_BUFFER_SIZE];
     bool bitSpanValueBuffer[BIT_SPAN_BUFFER_SIZE];
     // This buffer operates just like the "bitBuffer"
     int bitSpanBufferTail;
@@ -94,7 +94,7 @@ typedef struct
     // Circular buffer for communication from the top half to the bottom half of the rxIsr handler.
     // This is necessary so that the bottom half can lock its data without losing data from the top half
     // And allowing there to be no troubles with mutliple bottom halves running concurrently.
-    long rawBitTimeBuffer[RAW_BIT_BUFFER_SIZE];
+    int64_t rawBitTimeBuffer[RAW_BIT_BUFFER_SIZE];
     bool rawBitValueBuffer[RAW_BIT_BUFFER_SIZE];
     int rawBitBufferStart;
     int rawBitBufferTail;
@@ -165,7 +165,7 @@ void setBitScoreAt(GpioUart* uart, int index, int newScore)
 // Adds a bit span with the value and time given the circular bit span buffer.
 // No thread-safety stuff in this method itself.
 // Locking should be done separately...
-void addSpanTimeAndValue(GpioUart* uart, long time, bool value)
+void addSpanTimeAndValue(GpioUart* uart, int64_t time, bool value)
 {
     int nextTail = (uart->bitSpanBufferTail + 1) % BIT_SPAN_BUFFER_SIZE;
     
@@ -185,7 +185,7 @@ bool getSpanValueAt(GpioUart* uart, int index)
 
 // Index may range from 0 to BIT_SPAN_BUFFER_SIZE - 1
 // Where 0 will retrieve the oldest element.
-long getSpanTimeAt(GpioUart* uart, int index)
+int64_t getSpanTimeAt(GpioUart* uart, int index)
 {
     // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
     return uart->bitSpanTimeBuffer[(uart->bitSpanBufferTail + 1 + index) % BIT_SPAN_BUFFER_SIZE];
@@ -193,7 +193,7 @@ long getSpanTimeAt(GpioUart* uart, int index)
 
 // Index may range from 0 to BIT_SPAN_BUFFER_SIZE - 1
 // Where 0 will retrieve the oldest element.
-long getOriginalSpanTimeAt(GpioUart* uart, int index)
+int64_t getOriginalSpanTimeAt(GpioUart* uart, int index)
 {
     // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
     return uart->bitSpanOriginalTimeBuffer[(uart->bitSpanBufferTail + 1 + index) % BIT_SPAN_BUFFER_SIZE];
@@ -201,7 +201,7 @@ long getOriginalSpanTimeAt(GpioUart* uart, int index)
 
 // Index may range from 0 to BIT_SPAN_BUFFER_SIZE - 1
 // Where 0 will retrieve the oldest element.
-void setSpanTimeAt(GpioUart* uart, int index, long newTime)
+void setSpanTimeAt(GpioUart* uart, int index, int64_t newTime)
 {
     // The tail + 1 is the next element to be overwritten, hence the oldest. They get slowly newer from there.
     uart->bitSpanTimeBuffer[(uart->bitSpanBufferTail + 1 + index) % BIT_SPAN_BUFFER_SIZE] = newTime;
@@ -210,7 +210,7 @@ void setSpanTimeAt(GpioUart* uart, int index, long newTime)
 // Adds a byte to the circular tx buffer. This method is quasi-thread safe.
 // It is ok for this method and the corresponding removeTxByte method to execute
 // concurrently, but it is not safe multiple instances of this method to execute concurrently.
-void addRawBitTimeAndValue(GpioUart* uart, long time, bool value)
+void addRawBitTimeAndValue(GpioUart* uart, int64_t time, bool value)
 {
     int nextTail = (uart->rawBitBufferTail + 1) % RAW_BIT_BUFFER_SIZE;
     
@@ -243,7 +243,7 @@ void addRawBitTimeAndValue(GpioUart* uart, long time, bool value)
 // Removes and returns a bit time and value pair from the circular tx buffer. This method is thread safe.
 // Because there are two values to return, the bitValue is put in the pointer given and the bitTime is directly returned.
 // Returns -1 for no more bytes. (an invalid bitTime)
-long removeRawBitTimeAndValue(GpioUart* uart, bool* bitValue)
+int64_t removeRawBitTimeAndValue(GpioUart* uart, bool* bitValue)
 {    
     // Are we empty?
     if (uart->rawBitBufferStart == uart->rawBitBufferTail)
@@ -399,7 +399,7 @@ int uart_open(struct inode* inode, struct file* filePointer);
 int uart_release(struct inode* inode, struct file* filePointer);
 ssize_t uart_read(struct file* filePointer, char* dataBuffer, size_t dataLength, loff_t* filePosition);
 ssize_t uart_write(struct file* filePointer, const char* dataBuffer, size_t dataLength, loff_t* filePosition);
-long uart_ioctl(struct file* filePointer, unsigned int cmd, unsigned long arg);
+int64_t uart_ioctl(struct file* filePointer, unsigned int cmd, unsigned int64_t arg);
 
 module_init(uart_init)
 module_exit(uart_exit)
@@ -420,7 +420,7 @@ int majorNumber = 441;
 //Use to keep track of interrupt enabling/disabling
 int deviceOpens = 0;
 
-void addTime(struct timespec* time, long nanoseconds)
+void addTime(struct timespec* time, int64_t nanoseconds)
 {
     time->tv_nsec += nanoseconds;
     if (time->tv_nsec < 0)
@@ -436,13 +436,13 @@ void addTime(struct timespec* time, long nanoseconds)
     }
 }
 
-long timeDifference(const struct timespec* currentTime, const struct timespec* oldTime)
+int64_t timeDifference(const struct timespec* currentTime, const struct timespec* oldTime)
 {
     return  ((currentTime->tv_sec - oldTime->tv_sec) * 1000000000L +
              (currentTime->tv_nsec - oldTime->tv_nsec));
 }
 
-void addTimeAndBusyWait(struct timespec* time, long nanoseconds)
+void addTimeAndBusyWait(struct timespec* time, int64_t nanoseconds)
 {
     addTime(time, nanoseconds);
     struct timespec actualTime;
@@ -457,13 +457,13 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs);
 // Holds a GPIO pin to its old value until the needed time has past.
 // Then sets the gpio to a new value and updates the lastBitTime value.
 // Also takes inverting logic into account
-void holdAndSetTx(GpioUart* uart, bool value, struct timespec* lastBitTime, long nanosecondsNeeded)
+void holdAndSetTx(GpioUart* uart, bool value, struct timespec* lastBitTime, int64_t nanosecondsNeeded)
 {
     addTimeAndBusyWait(lastBitTime, nanosecondsNeeded);
     gpio_set_value(uart->txPin, uart->invertingLogic ? !value : value);
 }
 
-void txSender(unsigned long argument)
+void txSender(unsigned int64_t argument)
 {
     GpioUart* uart = (GpioUart*)argument;
     
@@ -474,11 +474,11 @@ void txSender(unsigned long argument)
     get_monotonic_boottime(&lastBitTime);
     
     // What is the delay for a bit in nanoseconds?
-    long bitDelay = 1000000000L / uart->baudRate;
+    int64_t bitDelay = 1000000000L / uart->baudRate;
     
-    // We can send multiple bytes at once, if it will not take too long.
+    // We can send multiple bytes at once, if it will not take too int64_t.
     // Let us take up to half a millisecond if our first byte will take less than that
-    // (so we will go as long as necessary to get one byte out)
+    // (so we will go as int64_t as necessary to get one byte out)
     int bitsFrame = 10 + (uart->secondStopBit ? 1 : 0) + (uart->parityBit ? 1 : 0);
     int bytesToDo = 500000 / bitDelay / bitsFrame;
     // But at least one byte...
@@ -496,7 +496,7 @@ void txSender(unsigned long argument)
             spin_lock_bh(&locker);
             
             // Make sure we have at least the required stop bits before our start bit
-            long stopBitNanoseconds = 50 * bitDelay + (uart->secondStopBit ? bitDelay : 0);
+            int64_t stopBitNanoseconds = 50 * bitDelay + (uart->secondStopBit ? bitDelay : 0);
             
             // Start bit
             holdAndSetTx(uart, false, &lastBitTime, stopBitNanoseconds);
@@ -638,21 +638,21 @@ int getByteInBitBufferAt(GpioUart* uart, int index)
     return -1;
 }
 
-void processSpanTimeAndValue(GpioUart* uart, long spanTime, long originalSpanTime, bool spanValue)
+void processSpanTimeAndValue(GpioUart* uart, int64_t spanTime, int64_t originalSpanTime, bool spanValue)
 {
     // Divide it into bits...
     
     // The length of time a single bit should occupy ideally.
-    long bitDelay = 1000000000L / uart->baudRate;
+    int64_t bitDelay = 1000000000L / uart->baudRate;
     
     // How many bit times have there been?
     // We round this up to help with slight misalignment, so 0.5 -> 1, 1.5 -> 2
-    long bitNumber = (spanTime + bitDelay / 2) / bitDelay;
+    int64_t bitNumber = (spanTime + bitDelay / 2) / bitDelay;
                     
     // What is the size of a valid frame for us?
     // We start with one or two stop bits (not technically in the frame), then a start bit, then 8 data bits, 1 possible parity, then 1 or 2 stop bits
     int frameSize = 11 + (uart->secondStopBit ? 2 : 0) + (uart->parityBit ? 1 : 0);
-    // The base frame size does not include the beginning stop bits, which do not technically belong to the frame.
+    // The base frame size does not include the beginning stop bits, which do not technically beint64_t to the frame.
     // This base frame size makes more sense to use, if say, you want to go up to the next frame; this is the number of bits away it is.
     int baseFrameSize = 10 + (uart->secondStopBit ? 1 : 0) + (uart->parityBit ? 1 : 0);
     
@@ -733,7 +733,7 @@ void processSpanTimeAndValue(GpioUart* uart, long spanTime, long originalSpanTim
 void relaxSpanTimesAtLevel(GpioUart* uart, int level)
 {
     // The length of time a single bit should occupy ideally.
-    long bitDelay = 1000000000L / uart->baudRate;
+    int64_t bitDelay = 1000000000L / uart->baudRate;
     
     // printk(KERN_INFO "Now at level %d", level);
     
@@ -743,8 +743,8 @@ void relaxSpanTimesAtLevel(GpioUart* uart, int level)
     // We go through them backwards, since we are mostly pulling time from the previous element
     for (int i = BIT_SPAN_BUFFER_SIZE; i-- > 1;)
     {
-        long spanTime = getSpanTimeAt(uart, i);
-        // Do not bother trying to give time to the span if it is very long (> 12 bits worth, the maximum uart frame size)
+        int64_t spanTime = getSpanTimeAt(uart, i);
+        // Do not bother trying to give time to the span if it is very int64_t (> 12 bits worth, the maximum uart frame size)
         if (spanTime > bitDelay * 12)
         {
             continue;
@@ -814,7 +814,7 @@ void relaxSpanTimes(GpioUart* uart)
 
 // The bottom half of the px pin interrupt handler
 // This bottom half is implemented as a tasklet
-void rxIsrBottomHalfFunction(unsigned long data)
+void rxIsrBottomHalfFunction(unsigned int64_t data)
 {
     GpioUart* uart = (GpioUart*)data;
     
@@ -823,7 +823,7 @@ void rxIsrBottomHalfFunction(unsigned long data)
     
     // Process all raw value pairs from the interrupts
     bool rawBitValue;
-    long rawBitTime;
+    int64_t rawBitTime;
     while ((rawBitTime = removeRawBitTimeAndValue(uart, &rawBitValue)) != -1)
     {
         // We take our very raw timings and modify them with our hopefully more correct baud rate
@@ -831,10 +831,10 @@ void rxIsrBottomHalfFunction(unsigned long data)
         // Every time we get a single bit timing in the range of 75% to 125% of the current modified baud rate,
         // then we slightly modify our modified baud rate value to incorporate the new timing. The single timing
         // has a low relative weight to insure that changes happen only "slowly"
-        long bitDelay = 1000000000L / uart->modifiedBaudRate;
+        int64_t bitDelay = 1000000000L / uart->modifiedBaudRate;
         if (rawBitTime >= bitDelay * 75 / 100 && rawBitTime <= bitDelay * 125 / 100)
         {
-            long modifiedBitDelay = (bitDelay * 63 + rawBitTime) / 64;
+            int64_t modifiedBitDelay = (bitDelay * 63 + rawBitTime) / 64;
             uart->modifiedBaudRate = 1000000000L / modifiedBitDelay;
         }
         
@@ -842,7 +842,8 @@ void rxIsrBottomHalfFunction(unsigned long data)
         // in terms of the original baud rate again. This way the times we record for testing will not
         // be based on different baud rates over time.
         printk(KERN_INFO "Raw time (original): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
-        rawBitTime = rawBitTime * uart->modifiedBaudRate / uart->baudRate;
+        // For some reason 64-bit division doesn't compile/link right on a raspberry pi...
+        rawBitTime = (int64_t)((float)rawBitTime * uart->modifiedBaudRate / uart->baudRate);
         printk(KERN_INFO "Raw time (modified): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
         
         //printk(KERN_INFO "Raw time: %ld at value: %d\n", rawBitTime, (int)rawBitValue);
@@ -851,8 +852,8 @@ void rxIsrBottomHalfFunction(unsigned long data)
         // We read out time spans when they are in the second-to-last position.
         // We do this because when the last position time spans are in the "relaxing" process,
         // they are not able to steal time. We want our read values to have just had this opportunity.
-        long removedSpanTime = getSpanTimeAt(uart, 1);
-        long removedOriginalSpanTime = getOriginalSpanTimeAt(uart, 1);
+        int64_t removedSpanTime = getSpanTimeAt(uart, 1);
+        int64_t removedOriginalSpanTime = getOriginalSpanTimeAt(uart, 1);
         bool removedSpanValue = getSpanValueAt(uart, 1);
         
         // Now we overwrite the oldest values by placing our new ones into the buffer
@@ -895,7 +896,7 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
     get_monotonic_boottime(&currentTime);
     
     // What is the delay for a bit in nanoseconds?
-    /*long bitDelay = 1000000000L / uart->baudRate;
+    /*int64_t bitDelay = 1000000000L / uart->baudRate;
     
     // How many bit times have there been on the old value? (since the last interrupt)
     // We round this up to help with slight misalignment, so 0.5 -> 1, 1.5 -> 2
@@ -933,7 +934,7 @@ irqreturn_t rxIsr(int irq, void* dev_id, struct pt_regs* regs)
         }
     }*/
     
-    long timePassed = timeDifference(&currentTime, &uart->rxLastInterruptTime);
+    int64_t timePassed = timeDifference(&currentTime, &uart->rxLastInterruptTime);
     
     // Add the record of passed time on the old value.
     addRawBitTimeAndValue(uart, timePassed, uart->rxLastValue);
@@ -1024,7 +1025,7 @@ int stopUart(GpioUart* uart)
     return 0;
 }
 
-long uart_ioctl(struct file* filePointer, unsigned int cmd, unsigned long arg)
+int64_t uart_ioctl(struct file* filePointer, unsigned int cmd, unsigned int64_t arg)
 {
     GpioUart* uart = (GpioUart*)filePointer->private_data;
     switch (cmd)
@@ -1133,7 +1134,7 @@ int uart_open(struct inode* inode, struct file* filePointer)
     uart->bitBufferTail = 0;
     uart->bitSpanBufferTail = 0;
     uart->rawBitBufferStart = uart->rawBitBufferTail = 0;
-    tasklet_init(&uart->rxIsrBottomHalfTasklet, rxIsrBottomHalfFunction, (unsigned long)uart);
+    tasklet_init(&uart->rxIsrBottomHalfTasklet, rxIsrBottomHalfFunction, (unsigned int64_t)uart);
     spin_lock_init(&uart->rxProcessingLock);
     
     // Prefill the bitScoreBuffer with -1 values to indicate none of the bits in it are valid
@@ -1166,7 +1167,7 @@ int uart_open(struct inode* inode, struct file* filePointer)
     
     init_timer(&uart->txTimer);
     uart->txTimer.function = txSender;
-    uart->txTimer.data = (unsigned long)uart;
+    uart->txTimer.data = (unsigned int64_t)uart;
    
     // TESTING
     uart->interruptsReceived = 0;
