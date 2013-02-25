@@ -24,6 +24,7 @@
 #include <linux/spinlock.h>
 #include <linux/time.h>
 #include <linux/delay.h>
+#include <asm-generic/div64.h>
 
 #include "gpio_uart.h"
 
@@ -900,7 +901,11 @@ void rxIsrBottomHalfFunction(unsigned long data)
         // in terms of the original baud rate again. This way the times we record for testing will not
         // be based on different baud rates over time.
         printk(KERN_INFO "Raw time (original): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
-        rawBitTime = rawBitTime * uart->modifiedBaudRate / uart->baudRate;
+        // This will overflow with 32-bit integers... so we use 64-bit.
+        // rawBitTime = rawBitTime * uart->modifiedBaudRate / uart->baudRate;
+        uint64_t intermediateDividend = (uint64_t)rawBitTime * uart->modifiedBaudRate;
+        __div64_32(&intermediateDividend, uart->baudRate);
+        rawBitTime = (long)intermediateDividend;
         printk(KERN_INFO "Raw time (modified): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
         
         //printk(KERN_INFO "Raw time: %ld at value: %d\n", rawBitTime, (int)rawBitValue);
