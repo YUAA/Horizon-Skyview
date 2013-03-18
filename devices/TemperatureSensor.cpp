@@ -5,12 +5,12 @@ TemperatureSensor::TemperatureSensor()
     
 }
 
-TemperatureSensor::int32_t getTemperature() const
+int32_t TemperatureSensor::getTemperature() const
 {
     
 }
 
-TemperatureSensor::int32_t readTemperature()
+int32_t TemperatureSensor::readTemperature()
 {
     
 }

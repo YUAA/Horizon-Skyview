@@ -109,7 +109,7 @@ typedef struct
     spinlock_t rxProcessingLock;
     
     // Individual bits that have been received by rx interrupts
-    int rxBitBuffer;
+    //int rxBitBuffer;
     // The time the last interrupt was fired on the rx line
     struct timespec rxLastInterruptTime;
     // The value of the rx pin at the time of the last interrupt

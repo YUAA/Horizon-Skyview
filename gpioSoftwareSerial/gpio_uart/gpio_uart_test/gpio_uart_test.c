@@ -903,9 +903,13 @@ void rxIsrBottomHalfFunction(unsigned long data)
         printk(KERN_INFO "Raw time (original): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
         // This will overflow with 32-bit integers... so we use 64-bit.
         // rawBitTime = rawBitTime * uart->modifiedBaudRate / uart->baudRate;
+#if BITS_PER_LONG == 64
+        rawBitTime = rawBitTime * uart->modifiedBaudRate / uart->baudRate;
+#else
         uint64_t intermediateDividend = (uint64_t)rawBitTime * uart->modifiedBaudRate;
         __div64_32(&intermediateDividend, uart->baudRate);
         rawBitTime = (long)intermediateDividend;
+#endif
         printk(KERN_INFO "Raw time (modified): %ld at value: %d\n", rawBitTime, (int)rawBitValue);
         
         //printk(KERN_INFO "Raw time: %ld at value: %d\n", rawBitTime, (int)rawBitValue);
