@@ -1,0 +1,4 @@
+#!/bin/sh
+rmmod pwm_in.ko
+make
+insmod pwm_in.ko

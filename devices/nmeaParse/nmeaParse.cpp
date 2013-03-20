@@ -1,4 +1,4 @@
-#include "nmeaparse.h"
+#include "nmeaParse.h"
 #include <string.h>
 
 void resetNmea(NmeaData* nmea)
