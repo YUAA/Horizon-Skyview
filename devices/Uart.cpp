@@ -2,26 +2,67 @@
 #include <termios.h>
 #include <fcntl.h>
 #include <unistd.h>
+#include <string.h>
+
+int Uart::configMux(const char* mux1, const char* setting1, size_t setting1Len, const char* mux2, const char* setting2, size_t setting2Len)
+{
+    int muxFile = open(mux1, O_WRONLY);
+    if (muxFile == -1)
+    {
+        return -1;
+    }
+    write(muxFile, setting1, setting1Len);
+    close(muxFile);
+    
+    muxFile = open(mux2, O_WRONLY);
+    if (muxFile == -1)
+    {
+        return -1;
+    }
+    write(muxFile, setting2, setting2Len);
+    close(muxFile);
+    
+    return 0;
+}
 
 Uart::Uart(int uartNumber, int32_t baudRate)
 {
+    uartHandle = -1;
+    
     uartNumber = (uartNumber < 1) ? 1 : ((uartNumber > 5) ? 5 : uartNumber);
     switch (uartNumber)
     {
         case 1:
-            uartHandle = open("/dev/ttyO1", O_RDWR);
+            //Mux settings go first... Then if no problem, do open as normal
+            if (configMux("/sys/kernel/debug/omap_mux/uart1_rxd", "20", 2, "/sys/kernel/debug/omap_mux/uart1_txd", "0", 1) == 0)
+            {
+                uartHandle = open("/dev/ttyO1", O_RDWR);
+            }
             break;
         case 2:
-            uartHandle = open("/dev/ttyO2", O_RDWR);
+            if (configMux("/sys/kernel/debug/omap_mux/spi0_sclk", "21", 2, "/sys/kernel/debug/omap_mux/spi0_d0", "1", 1) == 0)
+            {
+                uartHandle = open("/dev/ttyO2", O_RDWR);
+            }
             break;
         case 3:
-            uartHandle = open("/dev/ttyO3", O_RDWR);
+            // UART3 can only be written to! It actually has an rx pin, but it is completely inaccessible
+            if (configMux("/dev/null", "00", 2, "/sys/kernel/debug/omap_mux/eCAP0_in_PWM0_out", "1", 1) == 0)
+            {
+                uartHandle = open("/dev/ttyO3", O_WRONLY);
+            }
             break;
         case 4:
-            uartHandle = open("/dev/ttyO4", O_RDWR);
+            if (configMux("/sys/kernel/debug/omap_mux/gpmc_wait0", "26", 2, "/sys/kernel/debug/omap_mux/gpmc_wpn", "6", 1) == 0)
+            {
+                uartHandle = open("/dev/ttyO4", O_RDWR);
+            }
             break;
         case 5:
-            uartHandle = open("/dev/ttyO5", O_RDWR);
+            if (configMux("/sys/kernel/debug/omap_mux/lcd_data9", "24", 2, "/sys/kernel/debug/omap_mux/lcd_data8", "4", 1) == 0)
+            {
+                uartHandle = open("/dev/ttyO5", O_RDWR);
+            }
             break;
     }
     
@@ -153,4 +194,9 @@ int32_t Uart::readByte()
 void Uart::writeByte(uint8_t value)
 {
     write(uartHandle, &value, sizeof(uint8_t));
+}
+
+void Uart::writeString(const char* str)
+{
+    write(uartHandle, str, strlen(str));
 }

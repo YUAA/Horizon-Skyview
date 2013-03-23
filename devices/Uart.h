@@ -17,6 +17,7 @@ class Uart
     // Opens up the internal /dev/ttyO# device and sets it to use the given baud rate
     // Acceptable uart numbers are from 1 to 5. Different values are saturated to that range.
     // If anything goes wrong, the file handle is released and isReady() will return false.
+    // Note that UART3 is write only.
     Uart(int uartNumber, int32_t baudRate);
     
     bool isReady() const;
@@ -26,8 +27,14 @@ class Uart
     
     // Writes a single byte to the UART
     void writeByte(uint8_t value);
+    
+    // Write the given null terminated string.
+    void writeString(const char* str);
 
     private:
+    
+    // configures the kernel mux settings by simple writing the given settings to the given mux files.
+    int configMux(const char* mux1, const char* setting1, size_t setting1Len, const char* mux2, const char* setting2, size_t setting2Len);
 
     // File handle to our /dev/ttyO# device
     int uartHandle;
