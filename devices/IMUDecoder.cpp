@@ -4,18 +4,45 @@
 #include <sys/time.h>
 
 #define PI 3.1415926535897932384
-#define IMU_TAG1 "VNYMR,"
+#define IMU_TAG "VNYMR,"
 
 IMUDecoder::IMUDecoder()
 {
-    initNmea(&nmeaData1, IMU_TAG1, 12, 
+    nmeaIndices[0] = 0;
+    nmeaIndices[1] = 1;
+    nmeaIndices[2] = 2;
+    nmeaIndices[3] = 3;
+    nmeaIndices[4] = 4;
+    nmeaIndices[5] = 5;
+    nmeaIndices[6] = 6;
+    nmeaIndices[7] = 7;
+    nmeaIndices[8] = 8;
+    nmeaIndices[9] = 9;
+    nmeaIndices[10] = 10;
+    nmeaIndices[11] = 11;
+    nmeaDatums[0] = yawString;
+    nmeaDatums[1] = pitchString;
+    nmeaDatums[2] = rollString;
+    nmeaDatums[3] = magnetXString;
+    nmeaDatums[4] = magnetYString;
+    nmeaDatums[5] = magnetZString;
+    nmeaDatums[6] = accelXString;
+    nmeaDatums[7] = accelYString;
+    nmeaDatums[8] = accelZString;
+    nmeaDatums[9] = gyroXString;
+    nmeaDatums[10] = gyroYString;
+    nmeaDatums[11] = gyroZString;
+    initNmea(&nmeaData, IMU_TAG, sizeof(nmeaDatums), nmeaIndices, nmeaDatums);
+    /*
+    initNmea(&nmeaData, IMU_TAG, sizeof(nmeaDatums), 
              (const int[]) {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11},
              (char*[]) {yawString, pitchString, rollString, magnetXString, magnetYString, magnetZString, accelXString, accelYString, accelZString, gyroXString, gyroYString, gyroZString});
+    */
 }
 
 bool IMUDecoder::decodeByte(int8_t newByte)
 {
-    if (parseNmea(&nmeaData1, newByte))
+    if (parseNmea(&nmeaData, newByte))
     {
         // It parsed! Something happened!
         lastCalcData = currentCalcData;

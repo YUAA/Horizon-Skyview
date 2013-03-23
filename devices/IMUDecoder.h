@@ -85,9 +85,9 @@ class IMUDecoder
     ImuCalcData lastCalcData;
 
     // A NMEA parser for each tag type we want to interpret
-	NmeaData nmeaData1;
-    const int* nmeaIndices1;
-    char** nmeaDatums1;
+	NmeaData nmeaData;
+    int nmeaIndices[12];
+    char* nmeaDatums[12];
     
     // Directly parsed data
     char yawString[10];
