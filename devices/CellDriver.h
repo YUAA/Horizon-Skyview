@@ -44,6 +44,7 @@ class CellDriver
 
 	private:
 
+    Uart* uart;
 	// Your code here
 
 };

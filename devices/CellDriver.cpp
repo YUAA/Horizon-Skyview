@@ -8,7 +8,7 @@ CellDriver::CellDriver(Uart* uart)
 
 bool CellDriver::readyToSendTextMessage() const
 {
-    writeString("AT+CPAS\r\0");
+    uart->writeString("AT+CPAS\r\0");
         
     //insert some code to read the response
     //Maybe do if statement depending on the response
