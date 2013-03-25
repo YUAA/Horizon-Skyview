@@ -1,3 +1,5 @@
+#include <string>
+
 #ifndef GPIO_OUTPUT
 #define GPIO_OUTPUT
 

@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #ifndef HUMIDITY_SENSOR
 #define HUMIDITY_SENSOR
 

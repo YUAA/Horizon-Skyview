@@ -187,19 +187,34 @@ bool Uart::isReady() const
 
 int32_t Uart::readByte()
 {
+    if (!isInitialized)
+    {
+        return -1;
+    }
     uint8_t value = -1;
-    read(uartHandle, &value, sizeof(uint8_t));
+    int result = read(uartHandle, &value, sizeof(uint8_t));
+    // If we didn't read a single byte... we have a proble,
+    if (result != sizeof(uint8_t))
+    {
+        return -1;
+    }
     return value;
 }
 
 void Uart::writeByte(uint8_t value)
 {
-    write(uartHandle, &value, sizeof(uint8_t));
+    if (isInitialized)
+    {
+        write(uartHandle, &value, sizeof(uint8_t));
+    }
 }
 
 void Uart::writeString(const char* str)
 {
-    write(uartHandle, str, strlen(str));
+    if (isInitialized)
+    {
+        write(uartHandle, str, strlen(str));
+    }
 }
 
 /*Uart& operator << (Uart& uart, const char* val)

@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "nmeaparse.h"
+#include "nmeaParse/nmeaParse.h"
 
 #ifndef GPS_DECODER
 #define GPS_DECODER

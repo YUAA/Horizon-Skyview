@@ -1,4 +1,6 @@
+#ifndef _GNU_SOURCE
 #define _GNU_SOURCE
+#endif
 
 #include <string.h>
 #include <stdlib.h>
@@ -29,19 +31,20 @@ struct termios oldTerminalSettings;
 Uart imuUart(1, 115200);
 Uart gpsUart(2, 4800);
 Uart transceiverUart(4, 9600);
+Uart cellUart(5, 115200);
 
-IMUDecoder imuDecoder();
-GPSDecoder gpsDecoder();
-CellDriver cellDriver();
+IMUDecoder imuDecoder;
+GPSDecoder gpsDecoder;
+CellDriver cellDriver(&cellUart);
 
-HumiditySensor humiditySensor();
-TemperatureSensor temperatureSensor();
+HumiditySensor humiditySensor;
+TemperatureSensor temperatureSensor;
 
 ADCSensor3008 batteryAdc(1);
 GpioOutput stayAliveGpio(STAY_ALIVE_PIN);
 
 PWMSensor throttleIn(43);
-ServoDriver throttleOut();
+ServoDriver throttleOut;
 
 //Keep track of the last of these critical values
 int32_t lastLatitude;
@@ -86,7 +89,7 @@ unsigned long secondStartTime;
 // These correspond to the characters that are Shift+(0-5)
 int debugEchoMode = 64 - 1;
 
-uint32_t millis()
+uint64_t millis()
 {
     timeval currentTime;
     gettimeofday(&currentTime, NULL);
@@ -119,7 +122,7 @@ void baseHandleTag(const char* tag, const char* data)
         long seconds = strtol(data, &endPtr, 10);
         //We have parsed the time value correcly if
         //endPtr points to the null-terminator of the string.
-        if (*endPtr == NULL)
+        if (*endPtr == '\0')
         {
             secondsToTimeout = seconds;
         }
@@ -173,29 +176,7 @@ char getHexOfNibble(char c)
     }
 }
 
-void sendTransceiverPacketTag(const char* tag, const char* data)
-{   
-    // Now for the data!
-    transceiverUart << tag << data;
-    
-    // And now the checksum!
-    // Add all non-delimeter, non-length bytes and subtract 8-bits from 0xff
-    unsigned long totalSum = 1 + 0xff + 0xff + tag[0] + tag[1];
-    const char* dataCharOn = data;
-    while (*data)
-    {
-        totalSum += *data;
-        data++;
-    }
-    
-    int checksum = 0xff - (totalSum & 0xff);
-    
-    transceiverUart.writeByte(checksum);
-}
-
-//Sends tag with data to the transceiver and possible std::cout for debugging
-//Avoids sending tags with NULL or empty data (for convenience)
-void mainSendTag(const char* tag, const char* data)
+void sendTag(const char* tag, const char* data, Uart& uart)
 {
     if (data && *data)
     {
@@ -205,23 +186,80 @@ void mainSendTag(const char* tag, const char* data)
         char hex1 = getHexOfNibble(checksum >> 4);
         char hex2 = getHexOfNibble(checksum);
 
-        if (debugEchoMode & 32)
-        {
-            std::cout << tag << '^' << data << ':' << hex1 << hex2;
-        }
-        //transceiverUart << tag << '^' << data << ':' << hex1 << hex2;
-        //cellShield << tag << '^' << data << ':' << hex1 << hex2;
-        
-        sendTransceiverPacketTag(tag, data);
+        uart << tag << '^' << data << ':' << hex1 << hex2;
+    }
+}
+
+void sendTag(const char* tag, const char* data, std::ostream& stream)
+{
+    if (data && *data)
+    {
+        unsigned char checksum = crc8(tag, 0);
+        checksum = crc8(data, checksum);
+        //Get hex of checksum
+        char hex1 = getHexOfNibble(checksum >> 4);
+        char hex2 = getHexOfNibble(checksum);
+
+        stream << tag << '^' << data << ':' << hex1 << hex2;
     }
 }
 
 template<class T>
-void mainSendTag(const char* tag, T data)
+void sendTag(const char* tag, T data, std::ostream& stream)
 {
     std::stringstream convertOutput;
     convertOutput << data;
-    mainSendTag(tag, convertOutput.str().c_str());
+    sendTag(tag, convertOutput.str().c_str(), stream);
+}
+
+template<class T>
+void sendTag(const char* tag, T data, Uart& uart)
+{
+    std::stringstream convertOutput;
+    convertOutput << data;
+    sendTag(tag, convertOutput.str().c_str(), uart);
+}
+
+//Sends tag with data to the transceiver and possible std::cout for debugging
+//Avoids sending tags with NULL or empty data (for convenience)
+template<class T>
+void mainSendTag(const char* tag, T data)
+{
+    sendTag(tag, data, transceiverUart);
+    if (debugEchoMode & 32)
+    {
+        sendTag(tag, data, std::cout);
+    }
+}
+
+void cellShieldSendInformation()
+{
+    std::stringstream completeText;
+    
+    static int sendStateOn = 0;
+    switch (sendStateOn)
+    {
+        case 0:
+            sendTag("LA", lastLatitude, completeText);
+            sendTag("LO", lastLongitude, completeText);
+            sendStateOn = 1;
+            break;
+        case 1:
+            sendTag("GS", lastSatelliteCount, completeText);
+            sendStateOn = 2;
+            break;
+        case 2:
+            sendTag("DT", secondsToTimeout, completeText);
+            sendTag("LV", hasKickedBucket ? "0" : "1", completeText);
+            sendStateOn = 0;
+            break;
+        default:
+            // Impossible, but good form anyway
+            sendStateOn = 0;
+            break;
+    }
+    
+    cellDriver.queueTextMessage("12537408798", completeText.str().c_str());
 }
 
 void loop()
@@ -231,7 +269,7 @@ void loop()
     bool gottenInsideTemp = false;
     bool gottenOutsideTemp = false;
     
-    int32_t temperature = temperatureSensor().readTemperature();
+    int32_t temperature = temperatureSensor.readTemperature();
 
     //Keep track of what new data we have gotten
     bool gottenGps = false;
@@ -243,7 +281,7 @@ void loop()
         //Check for data from all sources...
         static TagParseData debuggingData;
         int c = -1;
-        while ((c = std::cin.get()) != -1)
+        while ((c = getchar()) != -1)
         {
             // See the comments of debugEchoMode for details...
             switch (c)
@@ -327,7 +365,7 @@ void loop()
         {
             // longer than the max sms message length of 160 characters in 7-bit encoding
             char textMessage[200];
-            cellDriver.getTextMessage(&textMessage, sizeof(textMessage));
+            cellDriver.getTextMessage(&textMessage[0], sizeof(textMessage));
             int length = strlen(textMessage);
             for (int i = 0; i < length; i++)
             {
@@ -473,6 +511,9 @@ int main(int argc, char* argv[])
     }
     
     atexit(restoreTerminal);
+    
+    // do initialization
+    setup();
     
     // Perform our main loop FOREVER!
     while (1)

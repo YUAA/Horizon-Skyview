@@ -1,4 +1,4 @@
-#include "ISerial.h"
+#include "Uart.h"
 
 #ifndef CELL_DRIVER
 #define CELL_DRIVER
@@ -14,8 +14,8 @@ class CellDriver
 	This will ensure that the length of the integer is always the same on different platforms.
 	*/
     
-    // Sets up this cell driver to communicate with the physical cellular module through the given serial device.
-    CellDriver(ISerial serial);
+    // Sets up this cell driver to communicate with the physical cellular module through the given serial/uart device.
+    CellDriver(Uart* uart);
     
     // True if this driver is ready to send another text message.
     // This would be false if last queued message has not been sent yet.

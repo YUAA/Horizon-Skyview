@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #ifndef TEMPERATURE_SENSOR
 #define TEMPERATURE_SENSOR
 

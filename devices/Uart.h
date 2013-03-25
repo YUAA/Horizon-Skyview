@@ -39,7 +39,7 @@ class Uart
         std::stringstream convertOutput;
         convertOutput << val;
         write(uartHandle, convertOutput.str().c_str(), convertOutput.str().length());
-        return this;
+        return *this;
     }
 
     private:

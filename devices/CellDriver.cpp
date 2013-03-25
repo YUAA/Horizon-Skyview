@@ -1,6 +1,6 @@
 #include "CellDriver.h"
 
-CellDriver::CellDriver(ISerial serial)
+CellDriver::CellDriver(Uart* uart)
 {
     
 }

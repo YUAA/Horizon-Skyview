@@ -1,3 +1,5 @@
+#include <stdint.h>
+
 #ifndef SERVO_DRIVER
 #define SERVO_DRIVER
 

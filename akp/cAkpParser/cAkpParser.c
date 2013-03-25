@@ -18,7 +18,7 @@ bool addByteForNormalTag(char currentByte, TagParseData* tpData)
         if (tpData->bufferLength - 1 <= tpData->dataIndex)
         {
             tpData->bufferLength *= 2;
-            tpData->dataBuffer = exitrealloc(tpData->dataBuffer, tpData->bufferLength);
+            tpData->dataBuffer = (char*)exitrealloc(tpData->dataBuffer, tpData->bufferLength);
         }
         
         tpData->dataBuffer[tpData->dataIndex++] = currentByte;
@@ -75,11 +75,11 @@ bool addByteForNormalTag(char currentByte, TagParseData* tpData)
             {
                 //We have successfully parsed a tag!
                 //So we make malloc-ments for output!
-                tpData->tag = exitmalloc(3);
+                tpData->tag = (char*)exitmalloc(3);
                 strncpy(tpData->tag, tagBytes, 3);
                 
                 tpData->dataLength = tpData->dataIndex;
-                tpData->data = exitmalloc(tpData->dataLength);
+                tpData->data = (char*)exitmalloc(tpData->dataLength);
                 strncpy(tpData->data, tpData->dataBuffer, tpData->dataLength);
                 
                 //We must also make sure the strings are safely terminated...
@@ -106,13 +106,13 @@ bool addByteForNormalTag(char currentByte, TagParseData* tpData)
 void finalizeDdTag(TagParseData* tpData)
 {
     //Make malloc-ments for output
-    tpData->tag = exitmalloc(3);
+    tpData->tag = (char*)exitmalloc(3);
     tpData->tag[0] = tpData->tagByte1;
     tpData->tag[1] = tpData->tagByte2;
     tpData->tag[2] = '\0';
     
     tpData->dataLength = tpData->aDataLength1;
-    tpData->data = exitmalloc(tpData->dataLength);
+    tpData->data = (char*)exitmalloc(tpData->dataLength);
     memcpy(tpData->data, tpData->dataBuffer, tpData->dataLength);
     
     //Reset our presence in any ongoing tag
@@ -151,7 +151,7 @@ bool addByteForDdTag(char currentByte, TagParseData* tpData)
                     //Make sure our buffer is large enough
                     if (tpData->bufferLength < tpData->aDataLength1)
                     {
-                        tpData->dataBuffer = exitrealloc(tpData->dataBuffer, tpData->aDataLength1);
+                        tpData->dataBuffer = (char*)exitrealloc(tpData->dataBuffer, tpData->aDataLength1);
                         tpData->bufferLength = tpData->aDataLength1;
                     }
                     
@@ -216,7 +216,7 @@ bool parseTag(char currentByte, TagParseData* tpData)
         tpData->tagByte2 = -1;
         tpData->dataIndex = -1;
         tpData->bufferLength = 32;
-        tpData->dataBuffer = exitmalloc(tpData->bufferLength);
+        tpData->dataBuffer = (char*)exitmalloc(tpData->bufferLength);
         tpData->hasColon = false;
         tpData->checkByte1 = -1;
         tpData->checkByte2 = -1;
