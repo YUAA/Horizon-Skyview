@@ -32,7 +32,7 @@
 	char msg_cmd [30];
 	//cmd for sending short sms
 	strcpy (msg_cmd, "AT+CMGS=\"");
-	//add phone number
+	//add phone number 1#######
 	strcat (msg_cmd, recipientPhoneNumber);
 	//add the ending part
 	strcat (msg_cmd, "\"\r\x1A\0");
