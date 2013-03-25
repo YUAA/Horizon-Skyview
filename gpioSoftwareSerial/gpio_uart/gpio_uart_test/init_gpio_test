@@ -1,0 +1,3 @@
+#!/bin/sh
+sudo mknod -m 777 /dev/gpio_uart c 441 1
+sudo insmod gpio_uart_test.ko

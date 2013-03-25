@@ -1,0 +1,5 @@
+#!/bin/sh
+rmmod gpio_uart_test.ko
+rmmod gpio_uart.ko
+make
+insmod gpio_uart.ko
