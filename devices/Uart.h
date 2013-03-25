@@ -1,4 +1,6 @@
 #include <stdint.h>
+#include <unistd.h>
+#include <sstream>
 
 #ifndef UART_WRAPPER
 #define UART_WRAPPER
@@ -30,6 +32,15 @@ class Uart
     
     // Write the given null terminated string.
     void writeString(const char* str);
+    
+    template<class T>
+    inline Uart& operator << (T val)
+    {
+        std::stringstream convertOutput;
+        convertOutput << val;
+        write(uartHandle, convertOutput.str().c_str(), convertOutput.str().length());
+        return this;
+    }
 
     private:
     

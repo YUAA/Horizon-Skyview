@@ -3,6 +3,7 @@
 #include <fcntl.h>
 #include <unistd.h>
 #include <string.h>
+#include <sstream>
 
 int Uart::configMux(const char* mux1, const char* setting1, size_t setting1Len, const char* mux2, const char* setting2, size_t setting2Len)
 {
@@ -200,3 +201,9 @@ void Uart::writeString(const char* str)
 {
     write(uartHandle, str, strlen(str));
 }
+
+/*Uart& operator << (Uart& uart, const char* val)
+{
+    write(uart.uartHandle, val, strlen(val));
+    return uart;
+}*/
