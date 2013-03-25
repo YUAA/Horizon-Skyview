@@ -1,5 +1,7 @@
 #include "CellDriver.h"     
-    
+#include "Uart.h"    
+
+
     //Send AT+CPAS command Phone activity status
     //return 0 if ready 1 if AT commands not available for other check documentation
     int readyStatus() const;
