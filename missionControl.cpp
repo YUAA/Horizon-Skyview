@@ -26,12 +26,31 @@
 #define STAY_ALIVE_PIN 2
 #define CELL_MAX_TAGS 6
 
+#define STATUS_LED_2_PIN 33
+#define STATUS_LED_3_PIN 37
+#define STATUS_LED_4_PIN 63
+#define STATUS_LED_5_PIN 46
+#define STATUS_LED_6_PIN 44
+#define STATUS_LED_7_PIN 34
+#define STATUS_LED_8_PIN 35
+#define STATUS_LED_9_PIN 39
+
+#define PWM_INPUT_1_PIN 26
+#define PWM_INPUT_2_PIN 27
+#define PWM_INPUT_3_PIN 38
+#define PWM_INPUT_4_PIN 61
+#define PWM_INPUT_5_PIN 65
+#define PWM_INPUT_6_PIN 86
+#define PWM_INPUT_7_PIN 117
+#define PWM_INPUT_8_PIN 115
+
 struct termios oldTerminalSettings;
 
-Uart imuUart(1, 115200);
-Uart gpsUart(2, 4800);
-Uart transceiverUart(4, 9600);
-Uart cellUart(5, 115200);
+Uart transceiverUart(1, 9600);
+Uart imuUart(2, 115200);
+Uart servoDriverUart(3, 9600);
+Uart cellUart(4, 115200);
+Uart gpsUart(5, 9600);
 
 IMUDecoder imuDecoder;
 GPSDecoder gpsDecoder;
