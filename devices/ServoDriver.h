@@ -23,14 +23,14 @@ class ServoDriver
 	// Sets the angle of this servo motor to the given number of degrees.
 	bool setAngle(int8_t servoNumber, int16_t degrees);
 	
-    // Returns the angle that this motor was last set to.
+    // Returns the angle that this motor was last set to. Nothing written currently.
 	int16_t getAngle(int8_t servoNumber);
 
 	// Sets the speed setting of the servo motor
 	// Accepts values from 0 to 127
 	bool setSpeed(int8_t servoNumber, int16_t speed);
 	
-	// Returns the speed setting of the servo motor
+	// Returns the speed setting of the servo motor. Nothing written currently. 
 	int8_t getSpeed(int8_t servoNumber);
 
 	private:
