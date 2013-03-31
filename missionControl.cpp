@@ -8,6 +8,7 @@
 #include <iostream>
 #include <termios.h>
 #include <time.h>
+#include <string>
 
 #include "devices/Uart.h"
 #include "devices/GPSDecoder.h"
@@ -383,9 +384,16 @@ void loop()
         if (cellDriver.update())
         {
             // longer than the max sms message length of 160 characters in 7-bit encoding
+            /*
             char textMessage[200];
             cellDriver.getTextMessage(&textMessage[0], sizeof(textMessage));
             int length = strlen(textMessage);
+            */
+            string textMessage();
+            cellDriver.getTextMessage(&textMessage);
+            int length = textMessage.length;
+
+
             for (int i = 0; i < length; i++)
             {
                 if (parseTag(textMessage[i], &cellData))
