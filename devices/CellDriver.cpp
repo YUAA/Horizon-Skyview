@@ -20,7 +20,7 @@ int8_t CellDriver::update()
         //once it finds a new line character in the buffer then it removes the new line 
         if (byte == '\r')
 {
-            responseBuffer.pop_back();
+            //responseBuffer.pop_back();
             //Parses it line by line looking for something useful to do with string
             parseResponse = parse(responseBuffer); //does this syntax work for a string?
             //clense the string

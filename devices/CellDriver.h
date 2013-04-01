@@ -11,7 +11,7 @@ class TextMessage
 public:
 	explicit TextMessage( std::string messageType, std::string number, std::string unknown, std::string time, std::string messageData) : messageType (messageType), number(number), name(name), time(time), messageData (messageData) {}
 
-private:
+//private:
 	std::string messageType, number, name, time, messageData;
 };
 

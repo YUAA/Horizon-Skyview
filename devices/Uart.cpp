@@ -5,14 +5,14 @@
 #include <string.h>
 #include <sstream>
 
-int Uart::configMux(const char* mux1, const char* setting1, size_t setting1Len, const char* mux2, const char* setting2, size_t setting2Len)
+int Uart::configMux(const char* mux1, const char* setting1, const char* mux2, const char* setting2)
 {
     int muxFile = open(mux1, O_WRONLY);
     if (muxFile == -1)
     {
         return -1;
     }
-    write(muxFile, setting1, setting1Len);
+    write(muxFile, setting1, strlen(setting1));
     close(muxFile);
     
     muxFile = open(mux2, O_WRONLY);
@@ -20,7 +20,7 @@ int Uart::configMux(const char* mux1, const char* setting1, size_t setting1Len, 
     {
         return -1;
     }
-    write(muxFile, setting2, setting2Len);
+    write(muxFile, setting2, strlen(setting2));
     close(muxFile);
     
     return 0;
@@ -35,32 +35,32 @@ Uart::Uart(int uartNumber, int32_t baudRate)
     {
         case 1:
             //Mux settings go first... Then if no problem, do open as normal
-            if (configMux("/sys/kernel/debug/omap_mux/uart1_rxd", "20", 2, "/sys/kernel/debug/omap_mux/uart1_txd", "0", 1) == 0)
+            if (configMux("/sys/kernel/debug/omap_mux/uart1_rxd", "20", "/sys/kernel/debug/omap_mux/uart1_txd", "0") == 0)
             {
                 uartHandle = open("/dev/ttyO1", O_RDWR);
             }
             break;
         case 2:
-            if (configMux("/sys/kernel/debug/omap_mux/spi0_sclk", "21", 2, "/sys/kernel/debug/omap_mux/spi0_d0", "1", 1) == 0)
+            if (configMux("/sys/kernel/debug/omap_mux/spi0_sclk", "21", "/sys/kernel/debug/omap_mux/spi0_d0", "1") == 0)
             {
                 uartHandle = open("/dev/ttyO2", O_RDWR);
             }
             break;
         case 3:
             // UART3 can only be written to! It actually has an rx pin, but it is completely inaccessible
-            if (configMux("/dev/null", "00", 2, "/sys/kernel/debug/omap_mux/eCAP0_in_PWM0_out", "1", 1) == 0)
+            if (configMux("/dev/null", "00", "/sys/kernel/debug/omap_mux/eCAP0_in_PWM0_out", "1") == 0)
             {
                 uartHandle = open("/dev/ttyO3", O_WRONLY);
             }
             break;
         case 4:
-            if (configMux("/sys/kernel/debug/omap_mux/gpmc_wait0", "26", 2, "/sys/kernel/debug/omap_mux/gpmc_wpn", "6", 1) == 0)
+            if (configMux("/sys/kernel/debug/omap_mux/gpmc_wait0", "26", "/sys/kernel/debug/omap_mux/gpmc_wpn", "6") == 0)
             {
                 uartHandle = open("/dev/ttyO4", O_RDWR);
             }
             break;
         case 5:
-            if (configMux("/sys/kernel/debug/omap_mux/lcd_data9", "24", 2, "/sys/kernel/debug/omap_mux/lcd_data8", "4", 1) == 0)
+            if (configMux("/sys/kernel/debug/omap_mux/lcd_data9", "24", "/sys/kernel/debug/omap_mux/lcd_data8", "4") == 0)
             {
                 uartHandle = open("/dev/ttyO5", O_RDWR);
             }
@@ -169,6 +169,17 @@ Uart::Uart(int uartNumber, int32_t baudRate)
     tcgetattr(uartHandle, &terminalOptions);
     cfsetispeed(&terminalOptions, rate);
     cfsetospeed(&terminalOptions, rate);
+    
+    // disable canonical mode processing in the line discipline driver
+    // So everything is read in instantly from stdin!
+    // Also, don't echo back characters... so we only see what we receive!
+    terminalOptions.c_lflag &= ~(ICANON);
+    // We do not want to block with getchar
+    // We have no minimum break in receiving characters (VTIME = 0)
+    // and we have no minimum number of characters to receive (VMIN = 0)
+    terminalOptions.c_cc[VTIME] = 0;
+    terminalOptions.c_cc[VMIN] = 0;
+    
     int result = tcsetattr(uartHandle, TCSANOW, &terminalOptions);
     
     if (result == -1)

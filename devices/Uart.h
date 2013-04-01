@@ -43,9 +43,9 @@ class Uart
     }
 
     private:
-    
+        
     // configures the kernel mux settings by simple writing the given settings to the given mux files.
-    int configMux(const char* mux1, const char* setting1, size_t setting1Len, const char* mux2, const char* setting2, size_t setting2Len);
+    int configMux(const char* mux1, const char* setting1, const char* mux2, const char* setting2);
 
     // File handle to our /dev/ttyO# device
     int uartHandle;

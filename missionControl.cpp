@@ -57,14 +57,15 @@ IMUDecoder imuDecoder;
 GPSDecoder gpsDecoder;
 CellDriver cellDriver(&cellUart);
 
-HumiditySensor humiditySensor;
-TemperatureSensor temperatureSensor;
+//HumiditySensor humiditySensor;
 
-ADCSensor3008 batteryAdc(1);
+ADCSensor3008 temperatureAdc(1);
+TemperatureSensor temperatureSensor(&temperatureAdc);
+
 GpioOutput stayAliveGpio(STAY_ALIVE_PIN);
 
 PWMSensor throttleIn(43);
-ServoDriver throttleOut;
+ServoDriver throttleOut(&servoDriverUart);
 
 //Keep track of the last of these critical values
 int32_t lastLatitude;
@@ -88,7 +89,7 @@ char cellStoredData[CELL_MAX_TAGS][10];
 int cellStoredTagOn = 0;
 
 //Keep track of time, second by second
-unsigned long secondStartTime;
+uint64_t secondStartTime;
 
 // What to current echo/output to the console - with flags!
 // 1 = console
@@ -389,14 +390,13 @@ void loop()
             cellDriver.getTextMessage(&textMessage[0], sizeof(textMessage));
             int length = strlen(textMessage);
             */
-            string textMessage();
-            cellDriver.getTextMessage(&textMessage);
-            int length = textMessage.length;
-
+            TextMessage textMessage = cellDriver.getTextMessage();
+            const char* messageData = textMessage.messageData.c_str();
+            int length = textMessage.messageData.length();
 
             for (int i = 0; i < length; i++)
             {
-                if (parseTag(textMessage[i], &cellData))
+                if (parseTag(messageData[i], &cellData))
                 {
                     cellShieldHandleTag(cellData.tag, cellData.data);
                 }
