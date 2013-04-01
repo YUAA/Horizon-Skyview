@@ -32,7 +32,7 @@ class GPSDecoder
 	// In millimeters. (Alternatively fixed-point meters, with the decimal at the 1000s place).
 	int32_t getAltitude() const;
 
-	int8_t getSatelliteCount() const;
+	int32_t getSatelliteCount() const;
 
 	// In degrees. From true-north.
 	int32_t getTrueHeading() const;
@@ -52,7 +52,15 @@ class GPSDecoder
 	bool decodeByte(int8_t newByte);
 
 	private:
-		NmeaData nmea;
+
+
+		NmeaData nmeaPos;
+		int nmeaPosIndices[7];
+		char* nmeaPosDatums[7];
+
+				NmeaData nmeaVelocity;
+		int nmeaVelocityIndices[3];
+		char* nmeaVelocityDatums[3];
 
 		char latitudeString[10];
 		char NSlatitudeString[1];

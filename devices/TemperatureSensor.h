@@ -1,9 +1,12 @@
 #include <stdint.h>
+#include "ADCSensor3008.h"
 
 #ifndef TEMPERATURE_SENSOR
 #define TEMPERATURE_SENSOR
 
 // Takes measurements from a physical temperature sensor device.
+// This is sepcifically meant here for a LM335 with a 1k resistor.
+// Uncalibrated, we don't really expect too much accuracy. +-3 celsius or so.
 class TemperatureSensor
 {
     public:
@@ -14,9 +17,8 @@ class TemperatureSensor
     This will ensure that the length of the integer is always the same on different platforms.
     */
     
-    // You will likely want to give this constructor parameters that distinguish this specific sensor
-    // from any other one.
-    TemperatureSensor();
+    // Takes the adc sensor to use.
+    TemperatureSensor(ADCSensor3008* adc);
     
     // Value returned has the decimal point fixed at the 1000s place.
     // Value is in degrees celsius.
@@ -32,8 +34,8 @@ class TemperatureSensor
 
     private:
 
-    // Your code here
-
+    ADCSensor3008* adc;
+    int32_t lastTemperature;
 };
 
 #endif
