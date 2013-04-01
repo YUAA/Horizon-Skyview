@@ -17,9 +17,16 @@ int main() {
 		myGPS.decodeByte(data);
 		if (myGPS.getSpeed() != INT32_MIN)
 		{
-			cout << myGPS.getSpeed() << " ";
+			cout <<"speed:"<< myGPS.getSpeed() << "  ";
 		}
-
+		if (myGPS.getAltitude() != INT32_MIN)
+		{
+			cout <<"Altitude:"<< myGPS.getAltitude() << " ";
+		}
+		if (myGPS.getHDOP() != INT32_MIN)
+		{
+			cout <<"HDOP:" <<myGPS.getHDOP() << " ";
+		}
 	}
 	system("pause");
 	return 0;

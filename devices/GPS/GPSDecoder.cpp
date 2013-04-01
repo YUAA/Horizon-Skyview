@@ -2,21 +2,21 @@
 
 GPSDecoder::GPSDecoder()
 {
-	nmeaPositionIndices[0] = 1;
-	nmeaPositionIndices[1] = 2;
-	nmeaPositionIndices[2] = 3;
-	nmeaPositionIndices[3] = 4;
-	nmeaPositionIndices[4] = 6;
-	nmeaPositionIndices[5] = 7;
-	nmeaPositionIndices[6] = 8;
-	nmeaPositionDatums[0] = latitudeString;
-	nmeaPositionDatums[1] = NSlatitudeString;
-	nmeaPositionDatums[2] = longitudeString;
-	nmeaPositionDatums[3] = EWlongitudeString;
-	nmeaPositionDatums[4] = numSatellitesString;
-	nmeaPositionDatums[5] = hdopString;
-	nmeaPositionDatums[6] = altitudeString;
-	initNmea(&nmeaPosition, "GPGGA,", 1, nmeaPositionIndices, nmeaPositionDatums);
+	nmeaPosIndices[0] = 1;
+	nmeaPosIndices[1] = 2;
+	nmeaPosIndices[2] = 3;
+	nmeaPosIndices[3] = 4;
+	nmeaPosIndices[4] = 6;
+	nmeaPosIndices[5] = 7;
+	nmeaPosIndices[6] = 8;
+	nmeaPosDatums[0] = latitudeString;
+	nmeaPosDatums[1] = NSlatitudeString;
+	nmeaPosDatums[2] = longitudeString;
+	nmeaPosDatums[3] = EWlongitudeString;
+	nmeaPosDatums[4] = numSatellitesString;
+	nmeaPosDatums[5] = hdopString;
+	nmeaPosDatums[6] = altitudeString;
+	initNmea(&nmeaPos, "GPGGA,", 1, nmeaPosIndices, nmeaPosDatums);
 
 	nmeaVelocityIndices[0] = 0;
 	nmeaVelocityIndices[1] = 2;
@@ -87,35 +87,63 @@ int32_t GPSDecoder::getHDOP() const
 bool GPSDecoder::decodeByte(int8_t newByte)
 {
 	bool success = false;
-	if (parseNmea(&nmeaPosition, newByte)) 
+	if (parseNmea(&nmeaPos, newByte)) 
 	{//lat comes in form AA.BBCCC  A degrees B minutes C decimal minutes  
 	//lat retruned in form AA.BBB A degrees B decimal degrees decimal fixed between A and B
-		latitude = atoi(latitudeString) * 1000;  //lat = AABBC
-		latitude = ((int)latitude / 1000) * 1000 + (int)(latitude % 1000) / 600;
-		if (0 == strcmp( NSlatitudeString, "S") ) {
-			latitude = -latitude;
-		}
-		longitude= atoi(longitudeString)*1000;	
-		longitude= ((int)longitude/1000)*1000+ (int)(longitude%1000)/600;
-		if (0 == strcmp( EWlongitudeString, "E") ) {
-			latitude = -latitude;
-		}
-
-		altitute=atoi( altitudeString)/1000;
+		char* decimal;
+		int temp;
+		temp = strtol(latitudeString, &decimal, 10) * 1000;  //lat = AABBC
+		if (decimal != latitudeString+1)
+		{
+			latitude = temp;
+			latitude = latitude + (int)strtol(decimal+1, &decimal, 10) / 600;
 		
-		realNumSatellites =atoi( numSatellitesString);
+			if (0 == strcmp( NSlatitudeString, "S") ) {
+				latitude = -latitude;
+			}
+		}
+		temp = strtol(longitudeString, &decimal, 10) * 1000;
+		if(decimal != longitudeString+1)
+		{
+			longitude = temp;
+			longitude = longitude + (int)strtol(decimal+1, &decimal, 10) / 600;
+			if (0 == strcmp( EWlongitudeString, "E") ) {
+				latitude = -latitude;
+			}
+		}
+		temp = strtol( altitudeString, &decimal, 10)*1000;
+		if (decimal != altitudeString+1)
+		{
+			altitute = temp + strtol( decimal, &decimal, 10);
+		}
+		 temp =strtol( numSatellitesString, &decimal, 10);
+		if (decimal != numSatellitesString) realNumSatellites = temp;
 		//strtol(numSatellitesString, &endPointer, 10);
-		realHdop = atoi (hdopString);
+		temp = strtol (hdopString, &decimal, 10);
+		if (decimal != hdopString) realHdop = temp;
 		success = true;
 	}
 	if (parseNmea(&nmeaVelocity, newByte)){ 
 		char* endpointer; 
-		speed =(int32_t) strtol(speedString, &endpointer, 10)*10000/36;
-		if(endpointer!=NULL){
-			speed=speed+ (int32_t) strtol(endpointer+1, &endpointer, 10)*1000/36;
+		int temp;
+		temp =(int32_t) strtol(speedString, &endpointer, 10)*10000/36;
+		if (endpointer != speedString+1)
+		{
+			if(endpointer!=NULL){
+				speed=temp+ (int32_t) strtol(endpointer+1, &endpointer, 10)*1000/36;
+			}else speed = temp;
 		}
-		trueheading= atoi(trueheadingString);
-		magneticheading= atoi( magneticheadingString);
+		temp = strtol(trueheadingString, &endpointer, 10);
+		if (endpointer != trueheadingString +1)
+		{
+			trueheading= temp + strtol( endpointer+1, &endpointer, 10);
+		}
+
+		temp= strtol( magneticheadingString, &endpointer, 10);
+		if (endpointer != magneticheadingString +1)
+		{
+			magneticheading = temp + strtol( endpointer+1, &endpointer, 10);
+		}
 		success = true;
 	}
 	return success;

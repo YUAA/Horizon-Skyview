@@ -54,9 +54,9 @@ class GPSDecoder
 	private:
 
 
-		NmeaData nmeaPosition;
-		int nmeaPositionIndices[7];
-		char* nmeaPositionDatums[7];
+		NmeaData nmeaPos;
+		int nmeaPosIndices[7];
+		char* nmeaPosDatums[7];
 
 				NmeaData nmeaVelocity;
 		int nmeaVelocityIndices[3];
