@@ -1,7 +1,20 @@
 #include "Uart.h"
-#include <String>
+#include <string>
+#include <deque>
+#include <queue>
+
 #ifndef CELL_DRIVER
 #define CELL_DRIVER
+
+class TextMessage
+{
+public:
+	explicit TextMessage( std::string messageType, std::string number, std::string unknown, std::string time, std::string messageData) : messageType (messageType), number(number), name(name), time(time), messageData (messageData) {}
+
+private:
+	std::string messageType, number, name, time, messageData;
+};
+
 
 // Controls a serially connected cellular module
 class CellDriver
@@ -27,18 +40,17 @@ class CellDriver
     
     // Starts the process of sending a text message to the cellular module.
     // This function should be asynchronous (that, is, it does not wait on the module's response.)
-    void queueTextMessage(const char* recipientPhoneNumber, const char* textMessage);
+    void queueTextMessage(const char* recipientPhoneNumber, const char* TextMessage);
 
     //Sends command to retrieve all messages from cell shield; returns "ok" if there are no
     //messages to the commandQueue
-    void CellDriver::retrieveTextMessage();
+    void retrieveTextMessage();
     
     //Sends command to delete all read messages to the commandQueue
-    void CellDriver::deleteReadMessage();
+    void deleteReadMessage();
 
-    // Copies up to (bufferSize - 1) bytes of the last received text message to destination,
-    // guaranteeing that the destination string is null terminated.
-    void CellDriver::getTextMessage(char* destination, size_t bufferSize) const;
+    // returns the most recent message in the queue
+    TextMessage getTextMessage();
 
    //Sends the command to get information about the nearby cell
    //towers that it is close to the cell shield 
@@ -57,31 +69,26 @@ class CellDriver
     bool checkingForNewMessage;
     bool readyToSendMessage; //ready to send a new text message
     bool isWaitingForOk;
+    bool aboutToReceiveMessage;
+    bool updatedTowers;
 
-    std::deque<std::stringstream> commandQueue;
-    std::queue<textMessage> messageQueue;
+    std::deque<std::string> commandQueue;
+    std::queue<TextMessage> messageQueue;
 
-    string responseBuffer;
-    string towerInfoList;
+    std::string responseBuffer;
+    std::string towerInfoList;
     int8_t numTowers;
     int8_t parseResponse;
-   int8_t CellDriver::parser(string responseBuffer);
+    int8_t parse(std::string responseBuffer);
 
 
 	//for text messages
-	string messageType, number, name, time, messageData;
+	std::string messageType, number, name, time, messageData;
 
 
 
 };
 
-class textMessage()
-{
-	explicit textMessage( string messageType, string number, string unknown, string time, string messageData) : messageType (messageType), number(number), name(name), time(time), messageData (messageData) {}
-
-private:
-	string messageType, number, name, time, messageData;
-}
 
 #endif
 
