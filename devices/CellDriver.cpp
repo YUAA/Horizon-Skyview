@@ -36,10 +36,13 @@ return(parseResponse);
     if(!this->isWaitingForOk)
 {
     this->isWaitingForOk = true;
-    //Send out the older element in the commandQueue
-     (*uart) << commandQueue.front();
-    //After command is sent then removes it from the Queue
-    commandQueue.pop_front();
+    //Send out the oldest element in the commandQueue, if any
+    if (commandQueue.size() > 0)
+    {
+        (*uart) << commandQueue.front();
+        //After command is sent then removes it from the Queue
+        commandQueue.pop_front();
+    }
 }
 }
 
