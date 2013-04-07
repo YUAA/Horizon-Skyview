@@ -4,8 +4,8 @@ GPSDecoder::GPSDecoder()
 {
 	nmeaPosIndices[0] = 1;
 	nmeaPosIndices[1] = 2;
-	nmeaPosIndices[2] = 4;
-	nmeaPosIndices[3] = 5;
+	nmeaPosIndices[2] = 3;
+	nmeaPosIndices[3] = 4;
 	nmeaPosIndices[4] = 6;
 	nmeaPosIndices[5] = 7;
 	nmeaPosIndices[6] = 8;
@@ -16,7 +16,7 @@ GPSDecoder::GPSDecoder()
 	nmeaPosDatums[4] = numSatellitesString;
 	nmeaPosDatums[5] = hdopString;
 	nmeaPosDatums[6] = altitudeString;
-	initNmea(&nmeaPos, "GPGGA,", 1, nmeaPosIndices, nmeaPosDatums);
+	initNmea(&nmeaPos, "GPGGA,", 7, nmeaPosIndices, nmeaPosDatums);
 
 	nmeaVelocityIndices[0] = 0;
 	nmeaVelocityIndices[1] = 2;
@@ -101,7 +101,7 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 			latitude = temp;
 			latitude = latitude + (int)strtol(decimal+1, &decimal, 10) / 600;
 		
-			if (0 == strcmp( NSlatitudeString, "S") ) {
+			if  (NSlatitudeString[0]== (char) "S")  {
 				latitude = -latitude;
 			}
 		}
@@ -110,7 +110,7 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 		{
 			longitude = temp;
 			longitude = longitude + (int)strtol(decimal+1, &decimal, 10) / 600;
-			if (0 == strcmp( EWlongitudeString, "E") ) {
+			if ( EWlongitudeString[0] == (char)"E") {
 				latitude = -latitude;
 			}
 		}

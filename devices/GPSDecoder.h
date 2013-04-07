@@ -1,8 +1,7 @@
-#define  __STDC_LIMIT_MACROS
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
-#include "nmeaParse/nmeaParse.h"
+#include "nmeaparse.h"
 
 #ifndef GPS_DECODER
 #define GPS_DECODER
@@ -17,7 +16,7 @@ class GPSDecoder
 	instead of int, short, or char. 
 	This will ensure that the length of the integer is always the same on different platforms.
 	*/
-
+	//all values are initialized to INT32_MIN
 	GPSDecoder();
 
 	// Value returned has the decimal point fixed at the 1000s place.
