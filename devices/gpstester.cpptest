@@ -19,6 +19,14 @@ int main() {
 		{
 			cout <<"speed:"<< myGPS.getSpeed() << "  ";
 		}
+		if (myGPS.getLongitude() != INT32_MIN)
+		{
+			cout<<"Longitude"<< myGPS.getLongitude()<< " ";
+		}
+		if (myGPS.getLatitude() != INT32_MIN)
+		{
+			cout<<"Latitude"<< myGPS.getLatitude()<< " ";
+		}
 		if (myGPS.getAltitude() != INT32_MIN)
 		{
 			cout <<"Altitude:"<< myGPS.getAltitude() << " ";

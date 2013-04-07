@@ -4,8 +4,8 @@ GPSDecoder::GPSDecoder()
 {
 	nmeaPosIndices[0] = 1;
 	nmeaPosIndices[1] = 2;
-	nmeaPosIndices[2] = 3;
-	nmeaPosIndices[3] = 4;
+	nmeaPosIndices[2] = 4;
+	nmeaPosIndices[3] = 5;
 	nmeaPosIndices[4] = 6;
 	nmeaPosIndices[5] = 7;
 	nmeaPosIndices[6] = 8;
@@ -93,7 +93,10 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 		char* decimal;
 		int temp;
 		temp = strtol(latitudeString, &decimal, 10) * 1000;  //lat = AABBC
-		if (decimal != latitudeString+1)
+		if (temp!=0){
+			int i=0;
+		}
+		if (decimal != latitudeString)
 		{
 			latitude = temp;
 			latitude = latitude + (int)strtol(decimal+1, &decimal, 10) / 600;
@@ -103,7 +106,7 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 			}
 		}
 		temp = strtol(longitudeString, &decimal, 10) * 1000;
-		if(decimal != longitudeString+1)
+		if(decimal != longitudeString)
 		{
 			longitude = temp;
 			longitude = longitude + (int)strtol(decimal+1, &decimal, 10) / 600;
@@ -112,7 +115,7 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 			}
 		}
 		temp = strtol( altitudeString, &decimal, 10)*1000;
-		if (decimal != altitudeString+1)
+		if (decimal != altitudeString)
 		{
 			altitute = temp + strtol( decimal, &decimal, 10);
 		}
@@ -127,20 +130,20 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 		char* endpointer; 
 		int temp;
 		temp =(int32_t) strtol(speedString, &endpointer, 10)*10000/36;
-		if (endpointer != speedString+1)
+		if (endpointer != speedString)
 		{
 			if(endpointer!=NULL){
 				speed=temp+ (int32_t) strtol(endpointer+1, &endpointer, 10)*1000/36;
 			}else speed = temp;
 		}
 		temp = strtol(trueheadingString, &endpointer, 10);
-		if (endpointer != trueheadingString +1)
+		if (endpointer != trueheadingString )
 		{
 			trueheading= temp + strtol( endpointer+1, &endpointer, 10);
 		}
 
 		temp= strtol( magneticheadingString, &endpointer, 10);
-		if (endpointer != magneticheadingString +1)
+		if (endpointer != magneticheadingString )
 		{
 			magneticheading = temp + strtol( endpointer+1, &endpointer, 10);
 		}
