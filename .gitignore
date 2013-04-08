@@ -16,6 +16,11 @@
 *.mod.c
 *.cmd
 *~
+*.save
+
+# visual studio files
+*.vcxproj
+*.vcxproj.filters
 
 # some executables
 arduinoParseTest

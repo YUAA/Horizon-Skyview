@@ -9,41 +9,40 @@ CellDriver::CellDriver(Uart* uart)
     this->isWaitingForOk = false;
 }
 
-
-//the update function switches between checking if there is something in the buffer from a last
-//send AT command and sending out the next AT command.
-//0 is incomplete parse
 int8_t CellDriver::update()
 {
+    // Process information from the cell module
     for(int32_t byte = uart->readByte(); byte != -1; byte = uart->readByte())
     {
         //once it finds a new line character in the buffer then it removes the new line 
         if (byte == '\r')
-{
+        {
             //responseBuffer.pop_back();
             //Parses it line by line looking for something useful to do with string
-            parseResponse = parse(responseBuffer); //does this syntax work for a string?
+            int8_t parseResponse = parse(responseBuffer); //does this syntax work for a string?
             //clense the string
-responseBuffer.erase();
-return(parseResponse);
+            responseBuffer.erase();
+            return parseResponse;
         }
-        //otherwise adds new byte to the string
-        responseBuffer += byte;
-
+        else if (byte != '\n')
+        {
+            // add byte to string if not on a end of line character.
+            responseBuffer += byte;
+        }
     }
     
     //We can send a new command if we are not waiting for the shield to finish an old one
     if(!this->isWaitingForOk)
-{
-    this->isWaitingForOk = true;
-    //Send out the oldest element in the commandQueue, if any
-    if (commandQueue.size() > 0)
     {
-        (*uart) << commandQueue.front();
-        //After command is sent then removes it from the Queue
-        commandQueue.pop_front();
+        //Send out the oldest element in the commandQueue, if any
+        if (commandQueue.size() > 0)
+        {
+            this->isWaitingForOk = true;
+            (*uart) << commandQueue.front();
+            //After command is sent then removes it from the Queue
+            commandQueue.pop_front();
+        }
     }
-}
 }
 
 
@@ -74,12 +73,16 @@ void CellDriver::deleteReadMessage()
 }
 
 
-//just copy the string from the internal buffer to the external buffer
 TextMessage CellDriver::getTextMessage()
 {
-    TextMessage copy = messageQueue.front();
-    messageQueue.pop();
-    return copy;
+    if (messageQueue.size() > 0)
+    {
+        TextMessage text = messageQueue.front();
+        messageQueue.pop();
+        return text;
+    }
+    TextMessage text("", "", "", "", "");
+    return text;
 }
 
 
@@ -107,83 +110,66 @@ OK
 */
 
 
-//
-//Beginning of the parsing function of the buffer
-//
+// Handles a single line of input from the cell shield
 int8_t CellDriver::parse(std::string inputResponse)
 {
-
-    //If it returns error as the response, give out -1
-    if (strcmp(inputResponse.substr(0,5).c_str(), "ERROR"))
+    // If this 
+    if (isReceivingTextMessage)
     {
-        //an error occurred. Are we using error handling?
-    //throw 1;
-    }
-
-    if (aboutToReceiveMessage && (strcmp(inputResponse.substr(0,2).c_str(), "OK") || strcmp(inputResponse.substr(0,5).c_str(), "+CMGL")))
-    {
+        messageData = inputResponse;
         messageQueue.push(TextMessage(messageType, number, name, time, messageData));
-        //reset fields?
-        aboutToReceiveMessage = false;
+        isReceivingTextMessage = false;
+        return true;
     }
 
-    //Ok response
-    if (strcmp(inputResponse.substr(0,2).c_str(), "OK"))
+    if (strcmp(inputResponse.substr(0,2).c_str(), "OK") == 0)
     {
         this->isWaitingForOk = false;
-    
-        aboutToReceiveMessage = false;
-    
-    return (1);
+        return false;
     }
 
-
-
-    if (strcmp(inputResponse.substr(0,5).c_str(), "+CMGL"))
+    // Response to a request to list all text messages
+    // This details exactly one text message (there may be multiple of these responses)
+    if (strcmp(inputResponse.substr(0,5).c_str(), "+CMGL") == 0)
     {
-
-        std::stringstream textInfo(inputResponse.substr(5));
+        // There is a colon immediately following the message the +CMGL, so we skip over it to the comma separated data
+        std::stringstream textInfo(inputResponse.substr(6));
         getline(textInfo, messageType, ',');
         getline(textInfo, number, ',');
         getline(textInfo, name, ',');
         getline(textInfo, time, ',');
         messageData.erase();
 
-        aboutToReceiveMessage = true;
-        return (2);
+        isReceivingTextMessage = true;
+        return false;
     }
 
-    if (aboutToReceiveMessage)
+    // Response to a request for cell tower information
+    if (strcmp(inputResponse.substr(0,5).c_str(), "+CNCI") == 0)
     {
-//FIX THIS
-        messageData.append(inputResponse);
-        return (5);
-    }
-
-
-
-    if (strcmp(inputResponse.substr(0,5).c_str(), "+CNCI"))
-    {           //This is **WRONG**. WE MIGHT HAVE MORE THAN 9 CELL TOWERS
-        if(!numTowers) //&& inputResponse(9) == '\n' && inputResponse(10) =='\r'
+        if(!isReceivingCellTowers)
         {
+            isReceivingCellTowers = true;
+            
+            // The first +CNCI response gives us the number of towers we will get info on
+            // First clear out old info
             towerInfoList.erase();
-            numTowers = inputResponse.substr(8,1).c_str()[0]; //I would also like to check that the next character is a /n/r
-
-            updatedTowers = true;
+            
+            // Returning 0 towers to receive on error is perfectly acceptable here...
+            // And we skip the first 6 characters (+CNCI:)
+            totalTowersToReceive = strtol(inputResponse.substr(6).c_str(), NULL, 10);
         } 
-        else 
+        else
         {
-            if(strcmp(inputResponse.substr(0,5).c_str(), "+CNCI"))
+            towerInfoList.append(inputResponse);
+            if (towerInfoList.size() >= totalTowersToReceive)
             {
-                towerInfoList.append(inputResponse);
-                numTowers--;
-            }
-            else
-            {
-                //error! all responses should start with +CNCI
-                //return(-1); 
-                //throw 2;
+                // We have received them all!
+                isReceivingCellTowers = false;
             }
         }
+        return false;
     }
+    
+    return false;
 }

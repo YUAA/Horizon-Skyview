@@ -384,12 +384,6 @@ void loop()
         static TagParseData cellData;
         if (cellDriver.update())
         {
-            // longer than the max sms message length of 160 characters in 7-bit encoding
-            /*
-            char textMessage[200];
-            cellDriver.getTextMessage(&textMessage[0], sizeof(textMessage));
-            int length = strlen(textMessage);
-            */
             TextMessage textMessage = cellDriver.getTextMessage();
             const char* messageData = textMessage.messageData.c_str();
             int length = textMessage.messageData.length();

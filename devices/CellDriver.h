@@ -27,16 +27,13 @@ class CellDriver
 	This will ensure that the length of the integer is always the same on different platforms.
 	*/
 
-
-
-    
     // Sets up this cell driver to communicate with the physical cellular module through the given serial/uart device.
     CellDriver(Uart* uart);
     
     // Does incremental work on sending or receiving text messages.
     // This function should be called periodically.
     // Returns true if a new text message has just been made avaialable.
-    int8_t  update();
+    int8_t update();
     
     // Starts the process of sending a text message to the cellular module.
     // This function should be asynchronous (that, is, it does not wait on the module's response.)
@@ -49,7 +46,8 @@ class CellDriver
     //Sends command to delete all read messages to the commandQueue
     void deleteReadMessage();
 
-    // returns the most recent message in the queue
+    // Pops a text message from the internal queue and returns it.
+    // If there are no messages to return, it returns one with all "" fields.
     TextMessage getTextMessage();
 
    //Sends the command to get information about the nearby cell
@@ -65,24 +63,23 @@ class CellDriver
 
     Uart* uart;
 
-    bool hasConfirmedAT;
+    //bool hasConfirmedAT;
     bool checkingForNewMessage;
     bool readyToSendMessage; //ready to send a new text message
     bool isWaitingForOk;
-    bool aboutToReceiveMessage;
-    bool updatedTowers;
+    bool isReceivingTextMessage;
+    bool isReceivingCellTowers;
 
     std::deque<std::string> commandQueue;
     std::queue<TextMessage> messageQueue;
 
     std::string responseBuffer;
     std::string towerInfoList;
-    int8_t numTowers;
-    int8_t parseResponse;
+    int totalTowersToReceive;
     int8_t parse(std::string responseBuffer);
 
 
-	//for text messages
+	// Temporary storage of text message data
 	std::string messageType, number, name, time, messageData;
 
 

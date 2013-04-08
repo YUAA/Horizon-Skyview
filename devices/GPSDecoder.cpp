@@ -101,7 +101,7 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 			latitude = temp;
 			latitude = latitude + (int)strtol(decimal+1, &decimal, 10) / 600;
 		
-			if  (NSlatitudeString[0]== (char) "S")  {
+			if  (NSlatitudeString[0] == 'S')  {
 				latitude = -latitude;
 			}
 		}
@@ -110,7 +110,7 @@ bool GPSDecoder::decodeByte(int8_t newByte)
 		{
 			longitude = temp;
 			longitude = longitude + (int)strtol(decimal+1, &decimal, 10) / 600;
-			if ( EWlongitudeString[0] == (char)"E") {
+			if ( EWlongitudeString[0] == 'E') {
 				latitude = -latitude;
 			}
 		}
