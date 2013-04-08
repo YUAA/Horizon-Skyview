@@ -2,6 +2,7 @@
 #include <string>
 #include <deque>
 #include <queue>
+#include <sys/time.h>
 
 #ifndef CELL_DRIVER
 #define CELL_DRIVER
@@ -47,28 +48,33 @@ class CellDriver
     void deleteReadMessage();
 
     // Pops a text message from the internal queue and returns it.
-    // If there are no messages to return, it returns one with all "" fields.
+    // If there are no messages to return, it returns a TextMessage with all "" fields
     TextMessage getTextMessage();
-
-   //Sends the command to get information about the nearby cell
-   //towers that it is close to the cell shield 
-   //Response format
-    //+CNCI: Index of Cell, BCCH, BSIC, LAC, Rxlev, Cell ID, MCC, MNC
-    void queuePositionFix();
         
-
     // And whatever other relevant codes exist for triangulating location or something like that.
 
-	private:
-
+    private:
+    
     Uart* uart;
 
     //bool hasConfirmedAT;
     bool checkingForNewMessage;
-    bool readyToSendMessage; //ready to send a new text message
     bool isWaitingForOk;
     bool isReceivingTextMessage;
     bool isReceivingCellTowers;
+
+    bool hasConfirmedInit;
+    
+    bool isWaitingForPrompt;
+    
+    // So we can meter making requests for cell tower information
+    uint64_t lastCellTowerTime;
+    
+    // Metering requests for received texts
+    uint64_t lastRetrieveMessagesTime;
+    
+    // So we can time out if the module is not responding to us, but we are waiting on an OK/prompt
+    uint64_t lastWaitingForOKTime;  
 
     std::deque<std::string> commandQueue;
     std::queue<TextMessage> messageQueue;
@@ -76,14 +82,20 @@ class CellDriver
     std::string responseBuffer;
     std::string towerInfoList;
     int totalTowersToReceive;
+    
+    // Temporary storage of text message data
+    std::string messageType, number, name, time, messageData;
+    
+    void setupCellModule();
     int8_t parse(std::string responseBuffer);
-
-
-	// Temporary storage of text message data
-	std::string messageType, number, name, time, messageData;
-
-
-
+    
+    //Sends the command to get information about the nearby cell
+    //towers that it is close to the cell shield 
+    //Response format
+    //+CNCI: Index of Cell, BCCH, BSIC, LAC, Rxlev, Cell ID, MCC, MNC
+    void queuePositionFix();
+    
+	
 };
 
 

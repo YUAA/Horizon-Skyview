@@ -48,7 +48,7 @@ Uart::Uart(int uartNumber, int32_t baudRate)
             break;
         case 3:
             // UART3 can only be written to! It actually has an rx pin, but it is completely inaccessible
-            if (configMux("/dev/null", "00", "/sys/kernel/debug/omap_mux/ecap0_in_pwm0_out", "1") == 0)
+            if (configMux("/dev/null", "00", "/sys/kernel/debug/omap_mux/eCAP0_in_PWM0_out", "1") == 0)
             {
                 uartHandle = open("/dev/ttyO3", O_WRONLY);
             }

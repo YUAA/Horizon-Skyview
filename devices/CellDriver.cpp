@@ -1,64 +1,126 @@
 #include "CellDriver.h"
 #include <string.h>
+#include <iostream>
+#include <algorithm>
+
+uint64_t cellMillis()
+{
+    timeval currentTime;
+    gettimeofday(&currentTime, NULL);
+    return currentTime.tv_sec * 1000 + currentTime.tv_usec / 1000;
+}
 
 CellDriver::CellDriver(Uart* uart)
 {
     this->uart = uart;
     //think about size of buffer - may cut off message if more than 1 is sent
     responseBuffer.reserve(200);
-    this->isWaitingForOk = false;
+    isWaitingForOk = false;
+    lastRetrieveMessagesTime = cellMillis();
+    lastCellTowerTime = cellMillis();
+    
+    // A command to set the texting mode
+    setupCellModule();
 }
 
+void CellDriver::setupCellModule()
+{
+    commandQueue.push_back("AT+CMGF=1\r");
+}
+
+//the update function switches between checking if there is something in the buffer from a last
+//send AT command and sending out the next AT command.
+//0 is incomplete parse
 int8_t CellDriver::update()
 {
-    // Process information from the cell module
+    // If we have been waiting for 10 seconds, time it out...
+    if (isWaitingForOk && (cellMillis() > lastWaitingForOKTime + 10000))
+    {
+        isWaitingForOk = false;
+        isWaitingForPrompt = false;
+        std::cout << "CELL: Timed out waiting for an OK/prompt" << std::endl;
+        // Try setting text mode again?
+        setupCellModule();
+    }
+    
+    // Check for messages every 10 seconds..
+    if (cellMillis() > lastRetrieveMessagesTime + 10000)
+    {
+        retrieveTextMessage();
+        lastRetrieveMessagesTime = cellMillis();
+    }
+
     for(int32_t byte = uart->readByte(); byte != -1; byte = uart->readByte())
     {
-        //once it finds a new line character in the buffer then it removes the new line 
+        if (isWaitingForPrompt && (byte == '>'))
+        {
+            (*uart) << commandQueue.front();
+            commandQueue.pop_front();
+            isWaitingForPrompt = false;   
+        }
+
         if (byte == '\r')
         {
-            //responseBuffer.pop_back();
             //Parses it line by line looking for something useful to do with string
             int8_t parseResponse = parse(responseBuffer); //does this syntax work for a string?
-            //clense the string
+            //cleanse the string
             responseBuffer.erase();
             return parseResponse;
         }
         else if (byte != '\n')
         {
-            // add byte to string if not on a end of line character.
+            // add byte to string if not on an end of line character.
             responseBuffer += byte;
         }
     }
     
-    //We can send a new command if we are not waiting for the shield to finish an old one
+    //We can send a new command if we are not waiting for the  to finish an old one
     if(!this->isWaitingForOk)
     {
         //Send out the oldest element in the commandQueue, if any
         if (commandQueue.size() > 0)
         {
-            this->isWaitingForOk = true;
+            lastWaitingForOKTime = cellMillis();
+            isWaitingForOk = true;
+            
             (*uart) << commandQueue.front();
+            
+            // If we are beginning to send a text message, we need to wait for a prompt,
+            // after this initial request
+            if (0 == strcmp(commandQueue.front().substr(0,7).c_str(),"AT+CMGS"))
+            {
+                isWaitingForPrompt = true;
+            } 
+            
             //After command is sent then removes it from the Queue
             commandQueue.pop_front();
         }
     }
+    
+    return false;
 }
 
 
 //This part is responsible for adding sms message to the list of commands.
 void CellDriver::queueTextMessage(const char* recipientPhoneNumber, const char* textMessage)
 {
-    std::stringstream totalMessage;
-    totalMessage << "AT+CMGS=\"" << recipientPhoneNumber << "\"\r\x1A";
-    totalMessage << textMessage << "\x1A";
+    //Needs to be split into two messages
+    //Sent before prompt
+    std::stringstream firstHalf;
+    firstHalf << "AT+CMGS=\"" << recipientPhoneNumber << "\"\r";
+    commandQueue.push_back(firstHalf.str());
     
-    //Add sending sms and the message to the command queue
-    commandQueue.push_back(totalMessage.str());
+    //Sent after prompt
+    std::stringstream secondHalf;
+    secondHalf << textMessage << '\x1A';
+    commandQueue.push_back(secondHalf.str());
+    
+    std::cout << "Queued the Text Message" << std::endl;
 }
 
 
-//Sends command to retrieve all messages from cell shield; returns "ok" if there are no messages
+//Sends command to retrieve all messages from cell shield; returns "ok" if there 
+//are no messages
 //as the messages maybe broken up to multiple ones.
 void CellDriver::retrieveTextMessage()
 { 
@@ -70,8 +132,8 @@ void CellDriver::retrieveTextMessage()
 void CellDriver::deleteReadMessage()
 {
     commandQueue.push_front("AT+CMGD=1,1\r");   
+    std::cout << commandQueue.front() << std::endl;
 }
-
 
 TextMessage CellDriver::getTextMessage()
 {
@@ -85,7 +147,6 @@ TextMessage CellDriver::getTextMessage()
     return text;
 }
 
-
 //Sends the command to get information about the nearby cell
 //towers that it is close to the cell shield
 //Response format
@@ -93,7 +154,7 @@ TextMessage CellDriver::getTextMessage()
 void CellDriver::queuePositionFix()
 {
     //Add get cell tower info command to end of queue
-    commandQueue.push_back("AT+CNCI?");
+    commandQueue.push_back("AT+CNCI=A");
 }
 
 //Response example for +CNCI
@@ -102,7 +163,7 @@ void CellDriver::queuePositionFix()
 +CNCI: 0,240,10,1395,49,d7d4,310,0
 +CNCI: 1,251,50,1395,31,d7d5,310,0
 +CNCI: 2,33372,20,1395,49,d7d6,310,0
-+CNCI: 3,33365,21,1395,22,c76b,310,0
++CNCI: 3,3./3365,21,1395,22,c76b,310,0
 +CNCI: 4,247,59,1395,22,4f76,310,0
 +CNCI: 5,33364,3,1395,25,d7d8,310,0
 
@@ -113,7 +174,6 @@ OK
 // Handles a single line of input from the cell shield
 int8_t CellDriver::parse(std::string inputResponse)
 {
-    // If this 
     if (isReceivingTextMessage)
     {
         messageData = inputResponse;
