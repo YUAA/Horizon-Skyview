@@ -2,6 +2,7 @@
 #include <string>
 #include <deque>
 #include <queue>
+#include <sys/time.h>
 
 #ifndef CELL_DRIVER
 #define CELL_DRIVER
@@ -50,27 +51,33 @@ class CellDriver
     void deleteReadMessage();
 
     // returns the most recent message in the queue
-    TextMessage getTextMessage();
+    const TextMessage * getTextMessage() const;
+        
+    void deleteOldestMessage();
 
-   //Sends the command to get information about the nearby cell
-   //towers that it is close to the cell shield 
-   //Response format
+    void setupCellModule(Uart* uart);
+
+    //Sends the command to get information about the nearby cell
+    //towers that it is close to the cell shield 
+    //Response format
     //+CNCI: Index of Cell, BCCH, BSIC, LAC, Rxlev, Cell ID, MCC, MNC
     void queuePositionFix();
         
 
     // And whatever other relevant codes exist for triangulating location or something like that.
 
-	private:
-
+    private:
+    uint64_t cellTime;
+    uint64_t cellTime2;	
     Uart* uart;
-
+    bool cellFirstTime;
     bool hasConfirmedAT;
     bool checkingForNewMessage;
     bool readyToSendMessage; //ready to send a new text message
     bool isWaitingForOk;
     bool aboutToReceiveMessage;
     bool updatedTowers;
+    bool isWaitingForPrompt;
 
     std::deque<std::string> commandQueue;
     std::queue<TextMessage> messageQueue;
@@ -82,8 +89,8 @@ class CellDriver
     int8_t parse(std::string responseBuffer);
 
 
-	//for text messages
-	std::string messageType, number, name, time, messageData;
+    //for text messages
+    std::string messageType, number, name, time, messageData;
 
 
 

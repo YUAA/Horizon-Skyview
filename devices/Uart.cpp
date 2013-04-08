@@ -48,7 +48,7 @@ Uart::Uart(int uartNumber, int32_t baudRate)
             break;
         case 3:
             // UART3 can only be written to! It actually has an rx pin, but it is completely inaccessible
-            if (configMux("/dev/null", "00", "/sys/kernel/debug/omap_mux/ecap0_in_pwm0_out", "1") == 0)
+            if (configMux("/dev/null", "00", "/sys/kernel/debug/omap_mux/eCAP0_in_PWM0_out", "1") == 0)
             {
                 uartHandle = open("/dev/ttyO3", O_WRONLY);
             }
@@ -173,7 +173,7 @@ Uart::Uart(int uartNumber, int32_t baudRate)
     // disable canonical mode processing in the line discipline driver
     // So everything is read in instantly from stdin!
     // Also, don't echo back characters... so we only see what we receive!
-    terminalOptions.c_lflag &= ~(ECHO);
+    terminalOptions.c_lflag &= ~(ECHO | ICANON); //Both are nessecary
     // We do not want to block with getchar
     // We have no minimum break in receiving characters (VTIME = 0)
     // and we have no minimum number of characters to receive (VMIN = 0)

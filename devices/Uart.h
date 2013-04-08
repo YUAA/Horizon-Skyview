@@ -1,7 +1,7 @@
 #include <stdint.h>
 #include <unistd.h>
 #include <sstream>
-
+#include <iostream>
 #ifndef UART_WRAPPER
 #define UART_WRAPPER
 
@@ -38,6 +38,7 @@ class Uart
     {
         std::stringstream convertOutput;
         convertOutput << val;
+        //std::cout << "Q" << convertOutput.str().c_str();
         write(uartHandle, convertOutput.str().c_str(), convertOutput.str().length());
         return *this;
     }

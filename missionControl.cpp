@@ -64,7 +64,11 @@ TemperatureSensor temperatureSensor(&temperatureAdc);
 
 GpioOutput stayAliveGpio(STAY_ALIVE_PIN);
 
-PWMSensor throttleIn(43);
+PWMSensor throttleIn(PWM_INPUT_1_PIN);
+PWMSensor flaps(PWM_INPUT_2_PIN);
+PWMSensor rudder(PWM_INPUT_3_PIN);
+PWMSensor elevators(PWM_INPUT_4_PIN);
+
 ServoDriver throttleOut(&servoDriverUart);
 
 //Keep track of the last of these critical values
@@ -123,7 +127,7 @@ void setup()
     //Preferably, this pin will have a resistor
     //between it and the killswitch circuit
     stayAliveGpio.setValue(0);
-
+    cellDriver.setupCellModule(&cellUart);
     //Start keeping track of time
     secondStartTime = millis();
 }
@@ -262,7 +266,7 @@ void cellShieldSendInformation()
     {
         case 0:
             sendTag("LA", lastLatitude, completeText);
-            sendTag("LO", lastLongitude, completeText);
+            sendTag("LO", millis(), completeText);// should be lastLongitude
             sendStateOn = 1;
             break;
         case 1:
@@ -272,6 +276,21 @@ void cellShieldSendInformation()
         case 2:
             sendTag("DT", secondsToTimeout, completeText);
             sendTag("LV", hasKickedBucket ? "0" : "1", completeText);
+            sendStateOn = 3;
+            break;
+        case 3:
+            sendStateOn = 4;
+            break;
+        case 4:
+            sendStateOn = 5;
+            break;
+        case 5:
+            sendStateOn = 6;
+            break;
+        case 6:
+            sendStateOn = 7;
+            break;
+        case 7:
             sendStateOn = 0;
             break;
         default:
@@ -279,8 +298,11 @@ void cellShieldSendInformation()
             sendStateOn = 0;
             break;
     }
-    
-    cellDriver.queueTextMessage("12537408798", completeText.str().c_str());
+    if (sendStateOn == 1)
+    {    
+        cellDriver.queueTextMessage("12537408798", completeText.str().c_str());
+        std::cout << "TEXT" << completeText.str().c_str() << std::endl;
+    }
 }
 
 void loop()
@@ -382,25 +404,36 @@ void loop()
         }
         
         static TagParseData cellData;
-        if (cellDriver.update())
+        if (cellDriver.update() == 12)
         {
-            // longer than the max sms message length of 160 characters in 7-bit encoding
-            /*
+            // longer than the max sms message length of 160 characters in 7-bit encoding            
+//std::cout << "update output" << cellDriver.update() << std::endl;
+		/*
             char textMessage[200];
-            cellDriver.getTextMessage(&textMessage[0], sizeof(textMessage));
+            cellDriver.getTextMessage(&textMessage[0], sizeof(textMessage);
             int length = strlen(textMessage);
             */
-            TextMessage textMessage = cellDriver.getTextMessage();
-            const char* messageData = textMessage.messageData.c_str();
-            int length = textMessage.messageData.length();
-
-            for (int i = 0; i < length; i++)
+            const TextMessage* textMessage = cellDriver.getTextMessage();
+            if(NULL != textMessage)
             {
-                if (parseTag(messageData[i], &cellData))
+		std::cout << textMessage << std::endl;
+		std::cout << "got text message" << std::endl;
+                const char* messageData = textMessage->messageData.c_str();
+                int length = textMessage->messageData.length();
+
+                for (int i = 0; i < length; i++)
                 {
-                    cellShieldHandleTag(cellData.tag, cellData.data);
+                    if (parseTag(messageData[i], &cellData))
+                    {
+                        cellShieldHandleTag(cellData.tag, cellData.data);
+                        std::cout << "Parsed Tag" << std::endl;
+                    }
                 }
+		std::cout << "Deleting Oldest Text Message" << std::endl;
+                cellDriver.deleteOldestMessage();
             }
+
+
         }
         
         // Give up a little time to the system...
