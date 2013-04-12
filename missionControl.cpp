@@ -264,7 +264,6 @@ void cellShieldSendInformation()
     if (sendCounter >= 600)
     {
         sendCounter = 0;
-        sendStateOn = 0;
 
         sendTag("LA", lastLatitude, completeText);
         sendTag("LO", lastLongitude, completeText);
