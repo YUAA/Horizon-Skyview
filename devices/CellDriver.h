@@ -10,7 +10,7 @@
 class TextMessage
 {
 public:
-	explicit TextMessage( std::string index, std::string messageType, std::string number, std::string unknown, std::string time, std::string messageData) : messageType (messageType), number(number), name(name), time(time), messageData (messageData) {}
+	explicit TextMessage( std::string index, std::string messageType, std::string number, std::string name, std::string time, std::string messageData) : index (index), messageType (messageType), number(number), name(name), time(time), messageData (messageData) {}
 
 //private:
 	std::string index, messageType, number, name, time, messageData;

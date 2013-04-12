@@ -2,6 +2,9 @@
 #define _GNU_SOURCE
 #endif
 
+#define __STDC_LIMIT_MACROS
+#include <stdint.h>
+
 #include <string.h>
 #include <stdlib.h>
 #include <sys/time.h>
@@ -243,6 +246,7 @@ void sendTag(const char* tag, T data, Uart& uart)
 
 //Sends tag with data to the transceiver and possible std::cout for debugging
 //Avoids sending tags with NULL or empty data (for convenience)
+//INT32_MIN is considered empty data (as implemented in the specific case below)
 template<class T>
 void mainSendTag(const char* tag, T data)
 {
@@ -250,6 +254,14 @@ void mainSendTag(const char* tag, T data)
     if (debugEchoMode & 32)
     {
         sendTag(tag, data, std::cout);
+    }
+}
+
+void mainSendTag(const char* tag, int32_t data)
+{
+    if (data != INT32_MIN)
+    {
+        mainSendTag<int32_t>(tag, data);
     }
 }
 
@@ -495,15 +507,15 @@ void loop()
     static int servoToggle = 0;
     if (servoToggle <= 0)
     {
-    throttleOut.setSpeed(1,126);
-    throttleOut.setAngle(1,3500);
-    servoToggle = 1;
+        throttleOut.setSpeed(1,126);
+        throttleOut.setAngle(1,3500);
+        servoToggle = 1;
     }
     else
     {
-    throttleOut.setSpeed(1,50);
-    throttleOut.setAngle(1,1500);
-    servoToggle = 0;
+        throttleOut.setSpeed(1,50);
+        throttleOut.setAngle(1,1500);
+        servoToggle = 0;
     }
 }
 

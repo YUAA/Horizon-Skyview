@@ -37,7 +37,7 @@ void CellDriver::setupCellModule()
 int8_t CellDriver::update()
 {
     // If we have been waiting for 10 seconds, time it out...
-    if (isWaitingForOk && (cellMillis() > lastWaitingForOKTime + 10000))
+    if (isWaitingForOk && (cellMillis() > lastWaitingForOKTime + 20000))
     {
         isWaitingForOk = false;
         isWaitingForPrompt = false;
@@ -197,7 +197,8 @@ int8_t CellDriver::parse(std::string inputResponse)
         return true;
     }
 
-    if (strcmp(inputResponse.substr(0,2).c_str(), "OK") == 0)
+    // Depending on mode, the OK might also be a error code 0 (the number). They mean the same thing.
+    if (strcmp(inputResponse.substr(0,2).c_str(), "OK") == 0 || ((inputResponse[0] == '0') && inputResponse.length() == 1))
     {
         this->isWaitingForOk = false;
         return false;
