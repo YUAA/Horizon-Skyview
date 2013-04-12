@@ -10,10 +10,10 @@
 class TextMessage
 {
 public:
-	explicit TextMessage( std::string messageType, std::string number, std::string unknown, std::string time, std::string messageData) : messageType (messageType), number(number), name(name), time(time), messageData (messageData) {}
+	explicit TextMessage( std::string index, std::string messageType, std::string number, std::string unknown, std::string time, std::string messageData) : messageType (messageType), number(number), name(name), time(time), messageData (messageData) {}
 
 //private:
-	std::string messageType, number, name, time, messageData;
+	std::string index, messageType, number, name, time, messageData;
 };
 
 
@@ -39,19 +39,17 @@ class CellDriver
     // Starts the process of sending a text message to the cellular module.
     // This function should be asynchronous (that, is, it does not wait on the module's response.)
     void queueTextMessage(const char* recipientPhoneNumber, const char* TextMessage);
-
-    //Sends command to retrieve all messages from cell shield; returns "ok" if there are no
-    //messages to the commandQueue
-    void retrieveTextMessage();
     
-    //Sends command to delete all read messages to the commandQueue
-    void deleteReadMessage();
+    //Sends command to delete the given text message from the module's internal memory
+    void deleteMessage(TextMessage textMessage);
 
     // Pops a text message from the internal queue and returns it.
     // If there are no messages to return, it returns a TextMessage with all "" fields
     TextMessage getTextMessage();
         
     // And whatever other relevant codes exist for triangulating location or something like that.
+
+    bool shouldEchoUartToStdout;
 
     private:
     
@@ -84,7 +82,7 @@ class CellDriver
     int totalTowersToReceive;
     
     // Temporary storage of text message data
-    std::string messageType, number, name, time, messageData;
+    std::string index, messageType, number, name, time, messageData;
     
     void setupCellModule();
     int8_t parse(std::string responseBuffer);
@@ -94,6 +92,10 @@ class CellDriver
     //Response format
     //+CNCI: Index of Cell, BCCH, BSIC, LAC, Rxlev, Cell ID, MCC, MNC
     void queuePositionFix();
+
+    //Sends command to retrieve all messages from cell shield; returns "ok" if there are no
+    //messages to the commandQueue
+    void retrieveTextMessages();
     
 	
 };

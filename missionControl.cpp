@@ -270,9 +270,9 @@ void cellShieldSendInformation()
         sendTag("GS", lastSatelliteCount, completeText);
         sendTag("DT", secondsToTimeout, completeText);
         sendTag("LV", hasKickedBucket ? "0" : "1", completeText);
+
+        cellDriver.queueTextMessage("12537408798", completeText.str().c_str());
     }
-    
-    cellDriver.queueTextMessage("12537408798", completeText.str().c_str());
 }
 
 void loop()
@@ -316,6 +316,7 @@ void loop()
                     break;
                 case '%':
                     debugEchoMode ^= 16;
+                    cellDriver.shouldEchoUartToStdout = (debugEchoMode & 16);
                     break;
                 case '^':
                     debugEchoMode ^= 32;
@@ -387,6 +388,9 @@ void loop()
                     cellShieldHandleTag(cellData.tag, cellData.data);
                 }
             }
+
+            // Remove it from the module. it is a gonner now.
+            cellDriver.deleteMessage(textMessage);
         }
         
         // Give up a little time to the system...

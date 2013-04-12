@@ -13,6 +13,8 @@ uint64_t cellMillis()
 CellDriver::CellDriver(Uart* uart)
 {
     this->uart = uart;
+    shouldEchoUartToStdout = false;
+
     //think about size of buffer - may cut off message if more than 1 is sent
     responseBuffer.reserve(200);
     isWaitingForOk = false;
@@ -47,12 +49,17 @@ int8_t CellDriver::update()
     // Check for messages every 10 seconds..
     if (cellMillis() > lastRetrieveMessagesTime + 10000)
     {
-        retrieveTextMessage();
+        retrieveTextMessages();
         lastRetrieveMessagesTime = cellMillis();
     }
 
     for(int32_t byte = uart->readByte(); byte != -1; byte = uart->readByte())
     {
+        if (shouldEchoUartToStdout)
+        {
+            std::cout << (char)byte;
+        }
+
         if (isWaitingForPrompt && (byte == '>'))
         {
             (*uart) << commandQueue.front();
@@ -60,15 +67,15 @@ int8_t CellDriver::update()
             isWaitingForPrompt = false;   
         }
 
-        if (byte == '\r')
+        if ((byte == '\r' || byte == '\n') && responseBuffer.length() > 0)
         {
             //Parses it line by line looking for something useful to do with string
             int8_t parseResponse = parse(responseBuffer); //does this syntax work for a string?
             //cleanse the string
-            responseBuffer.erase();
+            responseBuffer = "";
             return parseResponse;
         }
-        else if (byte != '\n')
+        else if (byte != '\n' && byte != '\r')
         {
             // add byte to string if not on an end of line character.
             responseBuffer += byte;
@@ -123,17 +130,23 @@ void CellDriver::queueTextMessage(const char* recipientPhoneNumber, const char* 
 //Sends command to retrieve all messages from cell shield; returns "ok" if there 
 //are no messages
 //as the messages maybe broken up to multiple ones.
-void CellDriver::retrieveTextMessage()
+void CellDriver::retrieveTextMessages()
 { 
     commandQueue.push_back("AT+CMGL=\"ALL\"\r");
 }  
 
 
-//Sends command to delete all read messages
-void CellDriver::deleteReadMessage()
+void CellDriver::deleteMessage(TextMessage textMessage)
 {
-    commandQueue.push_front("AT+CMGD=1,1\r");   
-    std::cout << commandQueue.front() << std::endl;
+    std::stringstream deleteCommand;
+    deleteCommand << "AT+CMGD=" << textMessage.index << "\r";
+
+    commandQueue.push_front(deleteCommand.str());
+
+    if (shouldEchoUartToStdout)
+    {
+        std::cout << commandQueue.front() << std::endl;
+    }
 }
 
 TextMessage CellDriver::getTextMessage()
@@ -144,7 +157,7 @@ TextMessage CellDriver::getTextMessage()
         messageQueue.pop();
         return text;
     }
-    TextMessage text("", "", "", "", "");
+    TextMessage text("", "", "", "", "", "");
     return text;
 }
 
@@ -178,7 +191,8 @@ int8_t CellDriver::parse(std::string inputResponse)
     if (isReceivingTextMessage)
     {
         messageData = inputResponse;
-        messageQueue.push(TextMessage(messageType, number, name, time, messageData));
+        TextMessage newMessage(index, messageType, number, name, time, messageData);
+        messageQueue.push(newMessage);
         isReceivingTextMessage = false;
         return true;
     }
@@ -195,11 +209,13 @@ int8_t CellDriver::parse(std::string inputResponse)
     {
         // There is a colon immediately following the message the +CMGL, so we skip over it to the comma separated data
         std::stringstream textInfo(inputResponse.substr(6));
+        getline(textInfo, index, ',');
         getline(textInfo, messageType, ',');
         getline(textInfo, number, ',');
         getline(textInfo, name, ',');
         getline(textInfo, time, ',');
-        messageData.erase();
+
+        messageData = "";
 
         isReceivingTextMessage = true;
         return false;
