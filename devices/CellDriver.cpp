@@ -25,6 +25,7 @@ CellDriver::CellDriver(Uart* uart)
 
 void CellDriver::setupCellModule()
 {
+    // Command to set to texting mode
     commandQueue.push_back("AT+CMGF=1\r");
 }
 

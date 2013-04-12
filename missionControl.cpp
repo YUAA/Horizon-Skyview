@@ -257,27 +257,20 @@ void cellShieldSendInformation()
 {
     std::stringstream completeText;
     
-    static int sendStateOn = 0;
-    switch (sendStateOn)
+    static int sendCounter = 0;
+
+    // Send every several minutes...
+    sendCounter++;
+    if (sendCounter >= 600)
     {
-        case 0:
-            sendTag("LA", lastLatitude, completeText);
-            sendTag("LO", lastLongitude, completeText);
-            sendStateOn = 1;
-            break;
-        case 1:
-            sendTag("GS", lastSatelliteCount, completeText);
-            sendStateOn = 2;
-            break;
-        case 2:
-            sendTag("DT", secondsToTimeout, completeText);
-            sendTag("LV", hasKickedBucket ? "0" : "1", completeText);
-            sendStateOn = 0;
-            break;
-        default:
-            // Impossible, but good form anyway
-            sendStateOn = 0;
-            break;
+        sendCounter = 0;
+        sendStateOn = 0;
+
+        sendTag("LA", lastLatitude, completeText);
+        sendTag("LO", lastLongitude, completeText);
+        sendTag("GS", lastSatelliteCount, completeText);
+        sendTag("DT", secondsToTimeout, completeText);
+        sendTag("LV", hasKickedBucket ? "0" : "1", completeText);
     }
     
     cellDriver.queueTextMessage("12537408798", completeText.str().c_str());
@@ -494,6 +487,21 @@ void loop()
     
     // Information sent to the cell shield arduino must be done separately to avoid overworking him.
     cellShieldSendInformation();
+
+    // Switch a servo back and forth as a demonstration
+    static int servoToggle = 0;
+    if (servoToggle <= 0)
+    {
+    throttleOut.setSpeed(1,126);
+    throttleOut.setAngle(1,3500);
+    servoToggle = 1;
+    }
+    else
+    {
+    throttleOut.setSpeed(1,50);
+    throttleOut.setAngle(1,1500);
+    servoToggle = 0;
+    }
 }
 
 void restoreTerminal()
